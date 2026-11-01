@@ -59,8 +59,13 @@ class Sweeper:
         merged: list[str] = []
         refused: list[str] = []
         waiting: list[str] = []
-        for repo in self._repos:
-            for pr in await self._gitea.open_prs(repo):
+        for repo in (*self._repos, *await self._retiring()):
+            try:
+                prs = await self._gitea.open_prs(repo)
+            except httpx2.HTTPStatusError as e:  # e.g. an app repo Xolotl isn't on: the rest still gets its pass
+                log.warning("Meru/%s: can't list its PRs: %s", repo, e)
+                continue
+            for pr in prs:
                 if pr.author != self._shikigami:
                     continue  # a person's PR: a person merges it
                 where = f"Meru/{repo}#{pr.number}"
@@ -80,6 +85,23 @@ class Sweeper:
         if merged:
             await self._ping_shikigami()
         return Outcome(merged=merged, refused=refused, waiting=waiting)
+
+    async def _retiring(self) -> list[str]:
+        """The repos of apps whose request is marked removed (D83): where Shikigami's stop and park PRs open
+        (cm-konk). Only with the bot - the requests repo is private."""
+        if not self._gitea.can_write:
+            return []
+        at = await self._gitea.branch_head(self._requests_repo, private=True)
+        repos = []
+        for name in await self._gitea.files_in(self._requests_repo, "apps", at, private=True):
+            text = await self._gitea.file(self._requests_repo, f"apps/{name}", at, private=True)
+            try:
+                request = app_request.parse(text or "")
+            except ValueError:
+                continue  # not a request Xolotl can read: nothing to retire from it
+            if request.removed and request.name not in self._repos:
+                repos.append(request.name)
+        return sorted(repos)
 
     async def _decide(self, repo: str, pr: PullRequest) -> tuple[Decision, str | None]:
         t = parse_title(pr.title)

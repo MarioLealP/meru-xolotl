@@ -33,5 +33,9 @@ class _Document(Incoming):
 
 def parse(text: str) -> AppRequest:
     """ValueError (pydantic's ValidationError is one) if it isn't an App request with a name and a description."""
-    doc = _Document.model_validate(yaml.safe_load(text))
+    try:
+        loaded = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise ValueError(f"not YAML: {e}") from e
+    doc = _Document.model_validate(loaded)
     return AppRequest(name=doc.metadata.name, description=doc.spec.description, removed=doc.spec.removed)

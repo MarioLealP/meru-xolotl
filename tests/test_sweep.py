@@ -31,6 +31,8 @@ class FakeGitea:
         self.merges: list[dict] = []
         self.pings: list[str] = []
         self.quarantines: list[dict] = []
+        self.listed: list[str] = []  # repos whose PRs were asked for
+        self.unlistable: set[str] = set()  # repos whose PR list answers 500
 
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         url, path, method = request.url, unquote(request.url.path), request.method
@@ -43,10 +45,18 @@ class FakeGitea:
         repo = path.removeprefix("/api/v1/repos/Meru/").split("/", 1)[0]
         tail = path.removeprefix(f"/api/v1/repos/Meru/{repo}")
         if tail == "/pulls":
+            self.listed.append(repo)
+            if repo in self.unlistable:
+                return httpx2.Response(500)
             prs = [] if repo != "meru" else [self._pr()]
             return httpx2.Response(200, json=prs)
         if tail == "/pulls/25/files":
             return httpx2.Response(200, json=[{"filename": f} for f in self.meta["changed"]])
+        if tail == "/contents/apps":
+            if "authorization" not in request.headers:
+                return httpx2.Response(404)
+            names = [path.removeprefix("apps/") for (r, _), fs in self.files.items() if r == repo for path in fs]
+            return httpx2.Response(200, json=[{"name": n, "type": "file"} for n in sorted(set(names))])
         if tail.startswith("/raw/"):
             files = self.files.get((repo, url.params["ref"]), {})
             name = tail.removeprefix("/raw/")
@@ -147,3 +157,26 @@ async def test_cuchulainn_down_is_logged_not_fatal(caplog: pytest.LogCaptureFixt
     outcome = await s.sweep()
     assert outcome.refused == ["Meru/meru#25"]
     assert "Cú Chulainn not told" in caplog.text
+
+
+GOLEM_REMOVED_REQUEST = (
+    "apiVersion: meru.clockmost.com/v1\nkind: App\nmetadata:\n  name: golem\n"
+    "spec:\n  owner: mario\n  description: Test app\n  removed: true\n"
+)
+
+
+async def test_a_retiring_apps_own_repo_is_swept_too():
+    fake = FakeGitea()
+    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    outcome = await sweeper(fake).sweep()
+    assert fake.listed == ["meru", "kyverno", "zot", "golem"]  # removed request -> its repo is looked at too
+    assert outcome.merged == ["Meru/meru#25"]  # and the trust repos as before
+
+
+async def test_a_repo_xolotl_cant_list_is_skipped_not_fatal(caplog: pytest.LogCaptureFixture):
+    fake = FakeGitea()
+    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.unlistable = {"golem"}
+    outcome = await sweeper(fake).sweep()
+    assert outcome.merged == ["Meru/meru#25"]
+    assert "Meru/golem: can't list its PRs" in caplog.text
