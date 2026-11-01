@@ -2,15 +2,35 @@
 
 Meru's merger - checks and merges Shikigami's trust PRs
 
-A Meru app, made from the [Meru/nuwa-python](https://git.clockmost.com/Meru/nuwa-python) template: a FastAPI service
-with one endpoint, `GET /heartbeat` -> `ok`, to grow from.
+Shikigami can only *propose* changes to what the cluster trusts - an app's fence (Meru/meru), signing key + build
+exception (Meru/kyverno) and push rule (Meru/zot) - as pull requests. Xolotl decides them (D87):
+
+1. reads the app's request on Meru/requests `main` - it must exist, and `removed` must match onboard / retire;
+2. rebuilds, from the PR's own base commit, what every file must hold - its own version of the rules
+   (`expected.py`), written apart from Shikigami's so a bug on one side doesn't pass both;
+3. merges only a byte-for-byte match, and exactly the commit it checked (`head_commit_id`), then pings Shikigami;
+4. a mismatch is never merged: it comments the diff and reports Shikigami to Cú Chulainn (D88).
+
+A person's PR is never touched. A sweep runs at start, when Shikigami pings `POST /ping`, and every 15 minutes.
+Until its Gitea bot exists (`XOLOTL_GITEA_TOKEN`), it checks and logs only.
+
+| file | job |
+|------|-----|
+| `src/xolotl/expected.py` | the trust rules: fence, build exception, key block, push rule, kustomization lines |
+| `src/xolotl/app_request.py` | the three request fields the check needs |
+| `src/xolotl/check.py` | the verdict for one PR: merge / mismatch / wait / not ours |
+| `src/xolotl/gitea.py` | the Gitea calls |
+| `src/xolotl/sweep.py` | one pass over the open PRs, acting on each verdict |
+| `src/xolotl/app.py` | `/heartbeat`, `/ping`, the sweep loop |
+
+The tests run the check on the nine trust PRs Shikigami really opened (`tests/fixtures/prs/`) and on tampered copies.
 
 ## Run locally
 
 ```sh
 uv sync
 uv run uvicorn --app-dir src xolotl.app:app --port 8080
-curl localhost:8080/heartbeat
+curl localhost:8080/heartbeat   # no token: sweeps read-only and log
 ```
 
 ## Development
