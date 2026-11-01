@@ -7,5 +7,5 @@ name: xolotl
 owner: mario
 image:
   repository: zot.clockmost.com/meru/xolotl
-  digest: sha256:ac062b5b6fe25fb3c76276eabe42edc2c950ffe59dc0d91bbb008a370aed4770
-  tag: "9287a7650894"
+  digest: sha256:8a8d9eda55359b1c4e6ed9c2203adaf0212af3f1f16ead6db66a36f63282230a
+  tag: "9600c2bb0e07"
