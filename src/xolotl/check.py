@@ -10,11 +10,11 @@ request, and merge only an exact match. Pure: the sweep fetches the PR, its file
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 from enum import StrEnum
 
 from xolotl import expected
 from xolotl.app_request import AppRequest
+from xolotl.models import Value
 
 # Shikigami's trust PR titles (Conventional Commits): chore(trust): onboard <app> - fence
 TITLE = re.compile(
@@ -32,8 +32,7 @@ def paths(app: str, what: str) -> tuple[str, ...]:
     }[what]
 
 
-@dataclass(frozen=True)
-class Title:
+class Title(Value):
     direction: str  # onboard | retire
     app: str
     what: str  # fence | signing key | push rule
@@ -41,11 +40,13 @@ class Title:
 
 def parse_title(title: str) -> Title | None:
     match = TITLE.match(title)
-    return Title(*match.groups()) if match else None
+    if not match:
+        return None
+    direction, app, what = match.groups()
+    return Title(direction=direction, app=app, what=what)
 
 
-@dataclass(frozen=True)
-class Proposal:
+class Proposal(Value):
     """A PR as the check sees it. `base` / `head`: paths(...) at the PR's base and head commits (None = no file)."""
 
     repo: str
@@ -53,8 +54,8 @@ class Proposal:
     title: str
     author: str
     changed: frozenset[str]
-    base: Mapping[str, str | None]
-    head: Mapping[str, str | None]
+    base: dict[str, str | None]
+    head: dict[str, str | None]
 
 
 class Verdict(StrEnum):
@@ -64,8 +65,7 @@ class Verdict(StrEnum):
     NOT_OURS = "not ours"
 
 
-@dataclass(frozen=True)
-class Decision:
+class Decision(Value):
     verdict: Verdict
     reason: str
 
@@ -139,24 +139,28 @@ def _backing(t: Title, request: AppRequest | None) -> str | None:
 
 def decide(p: Proposal, request: AppRequest | None, shikigami: str) -> Decision:
     if p.author != shikigami:
-        return Decision(Verdict.NOT_OURS, f"opened by {p.author}, not {shikigami}")
+        return Decision(verdict=Verdict.NOT_OURS, reason=f"opened by {p.author}, not {shikigami}")
     t = parse_title(p.title)
     if t is None or REPO[t.what] != p.repo:
-        return Decision(Verdict.MISMATCH, f"{p.title!r} isn't a title Shikigami writes for Meru/{p.repo}")
+        return Decision(
+            verdict=Verdict.MISMATCH, reason=f"{p.title!r} isn't a title Shikigami writes for Meru/{p.repo}"
+        )
     if (why := _backing(t, request)) is not None:
-        return Decision(Verdict.WAIT, why)
+        return Decision(verdict=Verdict.WAIT, reason=why)
     assert request is not None  # _backing said so
     try:
         want = rebuild(t, p.base, p.head, request)
     except _Mismatch as e:
-        return Decision(Verdict.MISMATCH, str(e))
+        return Decision(verdict=Verdict.MISMATCH, reason=str(e))
     except expected.BadLayout as e:
-        return Decision(Verdict.WAIT, f"can't rebuild on the PR's base: {e}")
+        return Decision(verdict=Verdict.WAIT, reason=f"can't rebuild on the PR's base: {e}")
     should_change = {path for path, text in want.items() if text != p.base.get(path)}
     if p.changed != should_change:
         extra, missing = sorted(p.changed - should_change), sorted(should_change - p.changed)
-        return Decision(Verdict.MISMATCH, f"changes the wrong files (extra: {extra}, missing: {missing})")
+        return Decision(
+            verdict=Verdict.MISMATCH, reason=f"changes the wrong files (extra: {extra}, missing: {missing})"
+        )
     differ = sorted(path for path in should_change if p.head.get(path) != want[path])
     if differ:
-        return Decision(Verdict.MISMATCH, f"differs from the rebuilt file: {', '.join(differ)}")
-    return Decision(Verdict.MERGE, f"{p.title}: every file matches the rebuild")
+        return Decision(verdict=Verdict.MISMATCH, reason=f"differs from the rebuilt file: {', '.join(differ)}")
+    return Decision(verdict=Verdict.MERGE, reason=f"{p.title}: every file matches the rebuild")

@@ -3,22 +3,37 @@ Each PR is said something once per head commit (a hidden marker in the comment),
 doesn't repeat itself, across restarts too."""
 
 import logging
-from dataclasses import dataclass, field
 
 import httpx2
 
 from xolotl import app_request
 from xolotl.check import Decision, Proposal, Verdict, decide, parse_title, paths
 from xolotl.gitea import Gitea, PullRequest
+from xolotl.models import Value
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class Outcome:
-    merged: list[str] = field(default_factory=list)
-    refused: list[str] = field(default_factory=list)  # mismatches: Cú Chulainn was asked
-    waiting: list[str] = field(default_factory=list)
+class Outcome(Value):
+    merged: list[str]
+    refused: list[str]  # mismatches: Cú Chulainn was asked
+    waiting: list[str]
+
+
+class Evidence(Value):
+    repo: str
+    pr: int
+    head: str
+    base: str
+
+
+class QuarantineReport(Value):
+    """What Cú Chulainn is told (D88): who asks, whom to quarantine, why, and where to look."""
+
+    caller: str
+    target: str
+    reason: str
+    evidence: Evidence
 
 
 def marker(pr: PullRequest) -> str:
@@ -41,7 +56,9 @@ class Sweeper:
         self._shikigami_ping_url, self._cuchulainn_url = shikigami_ping_url, cuchulainn_url
 
     async def sweep(self) -> Outcome:
-        outcome = Outcome()
+        merged: list[str] = []
+        refused: list[str] = []
+        waiting: list[str] = []
         for repo in self._repos:
             for pr in await self._gitea.open_prs(repo):
                 if pr.author != self._shikigami:
@@ -51,18 +68,18 @@ class Sweeper:
                 log.info("%s %r: %s - %s", where, pr.title, decision.verdict, decision.reason)
                 if decision.verdict == Verdict.MERGE:
                     if await self._merge(repo, pr, decision, request_at):
-                        outcome.merged.append(where)
+                        merged.append(where)
                     else:
-                        outcome.waiting.append(where)
+                        waiting.append(where)
                 elif decision.verdict == Verdict.MISMATCH:
                     await self._mismatch(repo, pr, decision)
-                    outcome.refused.append(where)
+                    refused.append(where)
                 else:
                     await self._say_once(repo, pr, f"Not merged yet: {decision.reason}.")
-                    outcome.waiting.append(where)
-        if outcome.merged:
+                    waiting.append(where)
+        if merged:
             await self._ping_shikigami()
-        return outcome
+        return Outcome(merged=merged, refused=refused, waiting=waiting)
 
     async def _decide(self, repo: str, pr: PullRequest) -> tuple[Decision, str | None]:
         t = parse_title(pr.title)
@@ -79,7 +96,9 @@ class Sweeper:
                     request = app_request.parse(text)
                 except ValueError as e:
                     log.warning("Meru/%s apps/%s.yaml: %s", self._requests_repo, t.app, e)
-        proposal = Proposal(repo, pr.number, pr.title, pr.author, changed, base, head)
+        proposal = Proposal(
+            repo=repo, number=pr.number, title=pr.title, author=pr.author, changed=changed, base=base, head=head
+        )
         return decide(proposal, request, self._shikigami), request_at
 
     async def _merge(self, repo: str, pr: PullRequest, decision: Decision, request_at: str | None) -> bool:
@@ -105,14 +124,14 @@ class Sweeper:
             f"Not merged: **doesn't match** what the rules rebuild from {pr.base[:12]}: {decision.reason}. "
             "Reported to Cú Chulainn (D87, D88) - a person looks at this one.",
         )
-        payload = {
-            "caller": "xolotl",
-            "target": self._shikigami,
-            "reason": f"trust PR Meru/{repo}#{pr.number} doesn't match its rebuild: {decision.reason}",
-            "evidence": {"repo": f"Meru/{repo}", "pr": pr.number, "head": pr.head, "base": pr.base},
-        }
+        report = QuarantineReport(
+            caller="xolotl",
+            target=self._shikigami,
+            reason=f"trust PR Meru/{repo}#{pr.number} doesn't match its rebuild: {decision.reason}",
+            evidence=Evidence(repo=f"Meru/{repo}", pr=pr.number, head=pr.head, base=pr.base),
+        )
         try:
-            (await self._http.post(self._cuchulainn_url, json=payload)).raise_for_status()
+            (await self._http.post(self._cuchulainn_url, json=report.model_dump())).raise_for_status()
         except httpx2.HTTPError as e:  # not built yet (D88): logged, asked again next pass
             log.error("Cú Chulainn not told about Meru/%s#%d: %s", repo, pr.number, e)
 

@@ -1,24 +1,76 @@
 """The few Gitea calls Xolotl makes. Reads of the public trust repos go without credentials; the token is only for
 what needs the bot: merging, commenting, and reading the private requests repo."""
 
-from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx2
+from pydantic import TypeAdapter
+
+from xolotl.models import Incoming, Value
 
 
 class NoToken(Exception):
     """The call needs Xolotl's bot, which doesn't exist yet."""
 
 
-@dataclass(frozen=True)
-class PullRequest:
+class PullRequest(Value):
     number: int
     title: str
     author: str
     base: str  # the merge base: the commit the PR was made from
     head: str
     mergeable: bool
+
+
+# Gitea's answers, only the fields Xolotl reads - a missing or mistyped one fails the call (the sweep logs it and
+# tries again next pass) instead of becoming a KeyError deep in the check.
+class _User(Incoming):
+    login: str
+
+
+class _Ref(Incoming):
+    sha: str
+
+
+class _Pull(Incoming):
+    number: int
+    title: str
+    user: _User
+    merge_base: str
+    head: _Ref
+    mergeable: bool | None = None  # Gitea leaves it out while it's still working it out
+
+    def as_pull_request(self) -> PullRequest:
+        return PullRequest(
+            number=self.number,
+            title=self.title,
+            author=self.user.login,
+            base=self.merge_base,
+            head=self.head.sha,
+            mergeable=bool(self.mergeable),
+        )
+
+
+class _ChangedFile(Incoming):
+    filename: str
+    previous_filename: str | None = None
+
+
+class _Commit(Incoming):
+    id: str
+
+
+class _Branch(Incoming):
+    commit: _Commit
+
+
+class _Comment(Incoming):
+    body: str
+
+
+_PULLS = TypeAdapter(list[_Pull])
+_CHANGED = TypeAdapter(list[_ChangedFile])
+_COMMENTS = TypeAdapter(list[_Comment])
 
 
 class Gitea:
@@ -39,17 +91,7 @@ class Gitea:
             f"{self._api}/repos/{self._org}/{repo}/pulls", params={"state": "open", "limit": 50}
         )
         response.raise_for_status()
-        return [
-            PullRequest(
-                number=pr["number"],
-                title=pr["title"],
-                author=pr["user"]["login"],
-                base=pr["merge_base"],
-                head=pr["head"]["sha"],
-                mergeable=bool(pr.get("mergeable")),
-            )
-            for pr in response.json()
-        ]
+        return [pr.as_pull_request() for pr in _PULLS.validate_json(response.content)]
 
     async def changed_files(self, repo: str, number: int) -> frozenset[str]:
         """Every path the PR touches - both names of a rename."""
@@ -58,10 +100,10 @@ class Gitea:
         )
         response.raise_for_status()
         names = set()
-        for changed in response.json():
-            names.add(changed["filename"])
-            if changed.get("previous_filename"):
-                names.add(changed["previous_filename"])
+        for changed in _CHANGED.validate_json(response.content):
+            names.add(changed.filename)
+            if changed.previous_filename:
+                names.add(changed.previous_filename)
         return frozenset(names)
 
     async def file(self, repo: str, path: str, ref: str, private: bool = False) -> str | None:
@@ -81,7 +123,7 @@ class Gitea:
             f"{self._api}/repos/{self._org}/{repo}/branches/{branch}", headers=self._auth() if private else {}
         )
         response.raise_for_status()
-        return str(response.json()["commit"]["id"])
+        return _Branch.model_validate_json(response.content).commit.id
 
     async def merge(self, repo: str, number: int, head: str, title: str, message: str) -> bool:
         """Merge exactly the checked commit: Gitea refuses if the PR moved on (head_commit_id). False if Gitea said
@@ -99,7 +141,7 @@ class Gitea:
     async def comments(self, repo: str, number: int) -> list[str]:
         response = await self._http.get(f"{self._api}/repos/{self._org}/{repo}/issues/{number}/comments")
         response.raise_for_status()
-        return [comment["body"] for comment in response.json()]
+        return [comment.body for comment in _COMMENTS.validate_json(response.content)]
 
     async def comment(self, repo: str, number: int, body: str) -> None:
         response = await self._http.post(
