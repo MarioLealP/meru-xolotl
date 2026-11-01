@@ -1,0 +1,32 @@
+# Everything Argo CD applies from this repo (namespace argocd). One fence file per app under projects/.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - projects/platform.yaml
+  - projects/echo.yaml
+  - projects/thoth.yaml
+  - projects/shikigami.yaml
+  - projects/xolotl.yaml
+  - appsets/meru-apps.yaml
+  - appsets/meru-databases.yaml
+  # Workload identities' rights in this namespace - each one exact, with its reason.
+  - rbac/shikigami-reads-apps.yaml
+  # The platform's parts - an explicit list, never discovered: each one has cluster-wide power.
+  - platform/cert-manager.yaml
+  - platform/cnpg.yaml
+  - platform/eso.yaml
+  - platform/falco.yaml
+  - platform/keda.yaml
+  - platform/kyverno.yaml
+  - platform/kyverno-policies.yaml
+  - platform/meru-kyverno.yaml
+  - platform/temporal.yaml
+  - platform/temporal-db.yaml
+  - platform/zot.yaml
+patches:
+  # Every app fence gets the same list of object kinds, kept in one place.
+  - path: projects/app-kinds.yaml
+    target:
+      group: argoproj.io
+      kind: AppProject
+      name: meru-.*

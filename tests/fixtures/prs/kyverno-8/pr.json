@@ -1,0 +1,10 @@
+{
+  "repo": "kyverno",
+  "number": 8,
+  "title": "onboard golem: signing key",
+  "changed": [
+    "exceptions/golem-build.yaml",
+    "keys/meru-signing-keys.yaml",
+    "kustomization.yaml"
+  ]
+}

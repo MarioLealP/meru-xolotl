@@ -1,0 +1,9 @@
+{
+  "repo": "meru",
+  "number": 21,
+  "title": "onboard golem: fence",
+  "changed": [
+    "kustomization.yaml",
+    "projects/golem.yaml"
+  ]
+}

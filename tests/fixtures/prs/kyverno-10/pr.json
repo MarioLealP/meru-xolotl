@@ -1,0 +1,10 @@
+{
+  "repo": "kyverno",
+  "number": 10,
+  "title": "onboard xolotl: signing key",
+  "changed": [
+    "exceptions/xolotl-build.yaml",
+    "keys/meru-signing-keys.yaml",
+    "kustomization.yaml"
+  ]
+}

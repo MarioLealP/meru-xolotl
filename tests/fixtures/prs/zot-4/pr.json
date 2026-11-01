@@ -1,0 +1,8 @@
+{
+  "repo": "zot",
+  "number": 4,
+  "title": "onboard golem: push rule",
+  "changed": [
+    "config.json"
+  ]
+}

@@ -1,0 +1,9 @@
+# Everything Argo CD applies from this repo (namespace kyverno). One file per app under keys/ and exceptions/ entries.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - keys/meru-signing-keys.yaml
+  - signatures/meru-signed.yaml
+  - exceptions/echo-build.yaml
+  - exceptions/thoth-build.yaml
+  - exceptions/shikigami-build.yaml

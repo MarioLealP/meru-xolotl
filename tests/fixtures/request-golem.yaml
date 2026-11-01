@@ -1,0 +1,12 @@
+# Meru's throwaway test app: a fresh request that walks every onboarding step on its own (repo, build credentials,
+# the fence + signing-key PRs of D82, marker, first build, deploy) - and now the first retirement (D85).
+apiVersion: meru.clockmost.com/v1
+kind: App
+metadata:
+  name: golem
+spec:
+  owner: mario
+  description: Test app - every onboarding step runs on it first
+  route:
+    enabled: false
+  removed: true # D83: retired - stopped and revoked now, purged by Charon after the retention

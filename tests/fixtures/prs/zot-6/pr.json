@@ -1,0 +1,8 @@
+{
+  "repo": "zot",
+  "number": 6,
+  "title": "onboard xolotl: push rule",
+  "changed": [
+    "config.json"
+  ]
+}

@@ -1,0 +1,21 @@
+# Golem's fence: where its Application may read from and deploy to - its own repo plus the
+# Nüwa and Sindri charts, into exactly its two namespaces, which it may also create. Written by Shikigami (D82).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: meru-golem
+  namespace: argocd
+spec:
+  description: "Golem - Test app - every onboarding step runs on it first"
+  sourceRepos:
+    - https://git.clockmost.com/Meru/golem.git
+    - https://git.clockmost.com/Meru/nuwa.git
+    - https://git.clockmost.com/Meru/sindri.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: golem
+    - server: https://kubernetes.default.svc
+      namespace: golem-build
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace, name: golem }
+    - { group: "", kind: Namespace, name: golem-build }

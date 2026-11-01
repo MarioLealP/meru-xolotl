@@ -1,0 +1,10 @@
+{
+  "repo": "kyverno",
+  "number": 9,
+  "title": "retire golem: signing key",
+  "changed": [
+    "exceptions/golem-build.yaml",
+    "keys/meru-signing-keys.yaml",
+    "kustomization.yaml"
+  ]
+}
