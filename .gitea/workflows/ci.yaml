@@ -1,5 +1,5 @@
 # xolotl's CI on Meru's runner (Sindri, namespace xolotl-build: each job is its own pod).
-# checks: every check scripts/check.sh runs locally - lint, format, types, lockfile, tests. No credentials here.
+# checks: every check scripts/check.sh runs locally - lint, format, types, lockfile, pip-audit, tests. No credentials here.
 # build: after the checks. Pull requests: build only. Main: fetch xolotl's Zot login + signing key from OpenBao
 # (into memory), build, push to Zot, sign, then write the new digest into deploy/values.yaml - Argo CD rolls that out.
 # The deploy commit itself doesn't trigger a run (paths-ignore); rebuild main by hand with "Run workflow".

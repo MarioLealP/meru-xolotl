@@ -32,7 +32,7 @@ def real_pr(name: str, **change) -> Proposal:
         base=files(d / "base", wanted),
         head=files(d / "head", wanted),
     )
-    return Proposal(**{**pr.__dict__, **change})
+    return Proposal(**(dict(pr) | change))  # rebuilt, not model_copy: the altered fields are validated too
 
 
 def verdict(pr: Proposal, request: AppRequest | None) -> Decision:

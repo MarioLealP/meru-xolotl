@@ -1,26 +1,37 @@
 """An app's request on Meru/requests main (`apps/<app>.yaml`) - the approval a trust PR has to stand on (D82). Only
 the three fields the check needs, read on their own: Xolotl doesn't share Shikigami's request model."""
 
-from dataclasses import dataclass
+from typing import Literal
 
 import yaml
 
+from xolotl.models import Incoming, Value
 
-@dataclass(frozen=True)
-class AppRequest:
+
+class AppRequest(Value):
     name: str
     description: str
     removed: bool
 
 
+class _Metadata(Incoming):
+    name: str
+
+
+class _Spec(Incoming):
+    description: str
+    removed: bool = False
+
+
+class _Document(Incoming):
+    """The request file as Shikigami writes it; everything but these three fields is ignored."""
+
+    kind: Literal["App"]
+    metadata: _Metadata
+    spec: _Spec
+
+
 def parse(text: str) -> AppRequest:
-    """ValueError if it isn't an App request with a name and a description."""
-    doc = yaml.safe_load(text)
-    if not isinstance(doc, dict) or doc.get("kind") != "App":
-        raise ValueError("not an App request")
-    name = (doc.get("metadata") or {}).get("name")
-    spec = doc.get("spec") or {}
-    description, removed = spec.get("description"), spec.get("removed", False)
-    if not isinstance(name, str) or not isinstance(description, str) or not isinstance(removed, bool):
-        raise ValueError("an App request needs metadata.name, spec.description and a true/false spec.removed")
-    return AppRequest(name=name, description=description, removed=removed)
+    """ValueError (pydantic's ValidationError is one) if it isn't an App request with a name and a description."""
+    doc = _Document.model_validate(yaml.safe_load(text))
+    return AppRequest(name=doc.metadata.name, description=doc.spec.description, removed=doc.spec.removed)
