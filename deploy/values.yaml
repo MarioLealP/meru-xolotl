@@ -9,3 +9,11 @@ image:
   repository: zot.clockmost.com/meru/xolotl
   digest: sha256:2a4ae85d6f1e22dd51ab9b5a7c183cdc72303783938adec43a7f21f1e06f09c6
   tag: "94546fe8e891"
+# Its Gitea bot's token (meru-xolotl-identities.sh -> apps/meru/xolotl/eso/gitea): merging and commenting on trust
+# PRs, reading Meru/requests. Without it Xolotl only checks and logs.
+secretEnv:
+  XOLOTL_GITEA_TOKEN:
+    secret: gitea
+    key: token
+externalSecrets:
+  gitea: {}
