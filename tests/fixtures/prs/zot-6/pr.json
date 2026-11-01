@@ -1,8 +1,9 @@
 {
   "repo": "zot",
   "number": 6,
-  "title": "onboard xolotl: push rule",
+  "title": "chore(trust): onboard xolotl - push rule",
   "changed": [
     "config.json"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }

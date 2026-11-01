@@ -1,9 +1,10 @@
 {
   "repo": "meru",
   "number": 23,
-  "title": "retire golem: fence",
+  "title": "chore(trust): retire golem - fence",
   "changed": [
     "kustomization.yaml",
     "projects/golem.yaml"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }

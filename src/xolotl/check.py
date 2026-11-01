@@ -16,7 +16,10 @@ from enum import StrEnum
 from xolotl import expected
 from xolotl.app_request import AppRequest
 
-TITLE = re.compile(r"^(onboard|retire) ([a-z0-9](?:[-a-z0-9]*[a-z0-9])?): (fence|signing key|push rule)$")
+# Shikigami's trust PR titles (Conventional Commits): chore(trust): onboard <app> - fence
+TITLE = re.compile(
+    r"^chore\(trust\): (onboard|retire) ([a-z0-9](?:[-a-z0-9]*[a-z0-9])?) - (fence|signing key|push rule)$"
+)
 REPO = {"fence": "meru", "signing key": "kyverno", "push rule": "zot"}
 
 

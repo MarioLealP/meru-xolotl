@@ -1,9 +1,10 @@
 {
   "repo": "meru",
   "number": 25,
-  "title": "onboard xolotl: fence",
+  "title": "chore(trust): onboard xolotl - fence",
   "changed": [
     "kustomization.yaml",
     "projects/xolotl.yaml"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }

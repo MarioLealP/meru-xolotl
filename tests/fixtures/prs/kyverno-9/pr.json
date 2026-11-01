@@ -1,10 +1,11 @@
 {
   "repo": "kyverno",
   "number": 9,
-  "title": "retire golem: signing key",
+  "title": "chore(trust): retire golem - signing key",
   "changed": [
     "exceptions/golem-build.yaml",
     "keys/meru-signing-keys.yaml",
     "kustomization.yaml"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }
