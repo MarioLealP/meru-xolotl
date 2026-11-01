@@ -54,6 +54,7 @@ class Sweeper:
         self._gitea, self._http, self._repos = gitea, http, repos
         self._requests_repo, self._shikigami = requests_repo, shikigami
         self._shikigami_ping_url, self._cuchulainn_url = shikigami_ping_url, cuchulainn_url
+        self._unlisted: set[str] = set()  # repos already warned about, until they list again
 
     async def sweep(self) -> Outcome:
         merged: list[str] = []
@@ -63,8 +64,11 @@ class Sweeper:
             try:
                 prs = await self._gitea.open_prs(repo)
             except httpx2.HTTPStatusError as e:  # e.g. an app repo Xolotl isn't on: the rest still gets its pass
-                log.warning("Meru/%s: can't list its PRs: %s", repo, e)
+                if repo not in self._unlisted:  # once, not every sweep (golem, retired before Xolotl existed)
+                    log.warning("Meru/%s: can't list its PRs: %s", repo, e)
+                    self._unlisted.add(repo)
                 continue
+            self._unlisted.discard(repo)
             for pr in prs:
                 if pr.author != self._shikigami:
                     continue  # a person's PR: a person merges it

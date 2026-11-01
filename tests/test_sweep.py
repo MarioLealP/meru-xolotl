@@ -180,3 +180,18 @@ async def test_a_repo_xolotl_cant_list_is_skipped_not_fatal(caplog: pytest.LogCa
     outcome = await sweeper(fake).sweep()
     assert outcome.merged == ["Meru/meru#25"]
     assert "Meru/golem: can't list its PRs" in caplog.text
+
+
+async def test_an_unlistable_repo_is_warned_about_once_until_it_lists_again(caplog: pytest.LogCaptureFixture):
+    fake = FakeGitea()
+    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.unlistable = {"golem"}
+    s = sweeper(fake)
+    await s.sweep()
+    await s.sweep()
+    assert caplog.text.count("Meru/golem: can't list its PRs") == 1
+    fake.unlistable = set()
+    await s.sweep()  # it lists again: a later failure is news again
+    fake.unlistable = {"golem"}
+    await s.sweep()
+    assert caplog.text.count("Meru/golem: can't list its PRs") == 2
