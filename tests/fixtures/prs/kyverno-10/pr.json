@@ -1,10 +1,11 @@
 {
   "repo": "kyverno",
   "number": 10,
-  "title": "onboard xolotl: signing key",
+  "title": "chore(trust): onboard xolotl - signing key",
   "changed": [
     "exceptions/xolotl-build.yaml",
     "keys/meru-signing-keys.yaml",
     "kustomization.yaml"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }

@@ -1,8 +1,9 @@
 {
   "repo": "zot",
   "number": 5,
-  "title": "retire golem: push rule",
+  "title": "chore(trust): retire golem - push rule",
   "changed": [
     "config.json"
-  ]
+  ],
+  "note": "files exactly as Gitea has them; title rewritten to Shikigami's Conventional Commits form (shikigami #18)"
 }

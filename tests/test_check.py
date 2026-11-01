@@ -123,7 +123,7 @@ def test_a_push_rule_for_more_users_is_a_mismatch():
 
 
 def test_a_title_for_another_repo_is_a_mismatch():
-    decision = verdict(real_pr("meru-25", title="onboard xolotl: push rule"), XOLOTL)
+    decision = verdict(real_pr("meru-25", title="chore(trust): onboard xolotl - push rule"), XOLOTL)
     assert decision.verdict == Verdict.MISMATCH
 
 
