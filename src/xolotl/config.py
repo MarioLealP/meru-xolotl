@@ -21,5 +21,14 @@ class Settings(BaseSettings):
     shikigami_ping_url: str = "http://shikigami.shikigami.svc/ping"
     cuchulainn_url: str = "http://cuchulainn.cuchulainn.svc/quarantine"
 
+    # Approvals (D98): the xolotl-approvals app at Authentik (meru-approvals.yaml). Its client secret comes from
+    # OpenBao (meru-oidc-secret.sh -> apps/meru/xolotl/eso/approvals-oidc); without it /approve answers 503.
+    approvals_issuer: str = "https://auth.clockmost.com/application/o/xolotl-approvals/"
+    approvals_client_id: str = "xolotl-approvals"
+    approvals_client_secret: SecretStr | None = None
+    approvals_redirect_uri: str = "https://atlas.clockmost.com/api/janus/approve/callback"
+    approvers_group: str = "meru-approvers"
+    shikigami_validate_url: str = "http://shikigami.shikigami.svc/validate"  # the final file is checked once more
+
     sweep_seconds: int = 900  # the backstop when no ping comes
     http_timeout: float = 20.0

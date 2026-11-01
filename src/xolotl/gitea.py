@@ -1,6 +1,7 @@
 """The few Gitea calls Xolotl makes. Reads of the public trust repos go without credentials; the token is only for
 what needs the bot: merging, commenting, and reading the private requests repo."""
 
+import base64
 from urllib.parse import quote
 
 import httpx2
@@ -73,6 +74,53 @@ class _Entry(Incoming):
     type: str  # file | dir | symlink | submodule
 
 
+class OpenPull(Value):
+    """One PR as an approval reads it (D98)."""
+
+    number: int
+    state: str  # open | closed
+    merged: bool
+    author: str
+    title: str
+    body: str
+    base_ref: str  # the branch it's for
+    head: str
+
+
+class _BaseRef(Incoming):
+    ref: str
+
+
+class _PullDetail(Incoming):
+    number: int
+    state: str
+    merged: bool = False
+    title: str
+    body: str | None = None
+    user: _User
+    base: _BaseRef
+    head: _Ref
+
+
+class _FileEntry(Incoming):
+    sha: str
+    content: str
+    encoding: str
+
+
+class _CommitAnswer(Incoming):
+    commit: _Ref
+
+
+class StoredFile(Value):
+    text: str
+    sha: str  # the blob - an update names it, so Gitea refuses if the file changed meanwhile
+
+
+class Conflict(Exception):
+    """Gitea refused the write because main moved under it - try again from the top."""
+
+
 _PULLS = TypeAdapter(list[_Pull])
 _CHANGED = TypeAdapter(list[_ChangedFile])
 _COMMENTS = TypeAdapter(list[_Comment])
@@ -99,10 +147,12 @@ class Gitea:
         response.raise_for_status()
         return [pr.as_pull_request() for pr in _PULLS.validate_json(response.content)]
 
-    async def changed_files(self, repo: str, number: int) -> frozenset[str]:
+    async def changed_files(self, repo: str, number: int, private: bool = False) -> frozenset[str]:
         """Every path the PR touches - both names of a rename."""
         response = await self._http.get(
-            f"{self._api}/repos/{self._org}/{repo}/pulls/{number}/files", params={"limit": 100}
+            f"{self._api}/repos/{self._org}/{repo}/pulls/{number}/files",
+            params={"limit": 100},
+            headers=self._auth() if private else {},
         )
         response.raise_for_status()
         names = set()
@@ -164,5 +214,64 @@ class Gitea:
     async def comment(self, repo: str, number: int, body: str) -> None:
         response = await self._http.post(
             f"{self._api}/repos/{self._org}/{repo}/issues/{number}/comments", headers=self._auth(), json={"body": body}
+        )
+        response.raise_for_status()
+
+    async def pull(self, repo: str, number: int) -> OpenPull | None:
+        response = await self._http.get(f"{self._api}/repos/{self._org}/{repo}/pulls/{number}", headers=self._auth())
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        p = _PullDetail.model_validate_json(response.content)
+        return OpenPull(
+            number=p.number,
+            state=p.state,
+            merged=p.merged,
+            author=p.user.login,
+            title=p.title,
+            body=p.body or "",
+            base_ref=p.base.ref,
+            head=p.head.sha,
+        )
+
+    async def stored(self, repo: str, path: str, ref: str = "main") -> StoredFile | None:
+        """A private file's text and blob sha at a branch, or None if it isn't there."""
+        response = await self._http.get(
+            f"{self._api}/repos/{self._org}/{repo}/contents/{quote(path)}", params={"ref": ref}, headers=self._auth()
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        entry = _FileEntry.model_validate_json(response.content)
+        if entry.encoding != "base64":
+            raise ValueError(f"{path}: Gitea sent {entry.encoding}, not base64")
+        return StoredFile(text=base64.b64decode(entry.content).decode(), sha=entry.sha)
+
+    async def write(self, repo: str, path: str, text: str, message: str, replaces: str | None) -> str:
+        """Commit one file to main: create it (replaces=None) or update the blob `replaces`. The new commit's sha;
+        Conflict if the file appeared or changed since it was read."""
+        body: dict[str, str] = {
+            "branch": "main",
+            "content": base64.b64encode(text.encode()).decode(),
+            "message": message,
+        }
+        if replaces is None:
+            response = await self._http.post(
+                f"{self._api}/repos/{self._org}/{repo}/contents/{quote(path)}", headers=self._auth(), json=body
+            )
+        else:
+            response = await self._http.put(
+                f"{self._api}/repos/{self._org}/{repo}/contents/{quote(path)}",
+                headers=self._auth(),
+                json=body | {"sha": replaces},
+            )
+        if response.status_code in (409, 422):
+            raise Conflict(f"{path} changed on main meanwhile ({response.status_code})")
+        response.raise_for_status()
+        return _CommitAnswer.model_validate_json(response.content).commit.sha
+
+    async def close(self, repo: str, number: int) -> None:
+        response = await self._http.patch(
+            f"{self._api}/repos/{self._org}/{repo}/pulls/{number}", headers=self._auth(), json={"state": "closed"}
         )
         response.raise_for_status()

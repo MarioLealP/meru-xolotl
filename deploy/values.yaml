@@ -11,15 +11,22 @@ image:
   tag: "f7767222b823"
 # Its Gitea bot's token (meru-xolotl-identities.sh -> apps/meru/xolotl/eso/gitea): merging and commenting on trust
 # PRs, reading Meru/requests. Without it Xolotl only checks and logs.
+# And the xolotl-approvals app's client secret (meru-oidc-secret.sh -> apps/meru/xolotl/eso/approvals-oidc): redeeming
+# Mario's approval codes (D98). Without it /approve answers 503.
 secretEnv:
   XOLOTL_GITEA_TOKEN:
     secret: gitea
     key: token
+  XOLOTL_APPROVALS_CLIENT_SECRET:
+    secret: approvals-oidc
+    key: clientSecret
 externalSecrets:
   gitea: {}
+  approvals-oidc: {}
 # Who may connect (D97): the host side - Caddy, Gitea and Zabbix are still Docker containers, so their addresses,
-# plus the node for the kubelet's probes - Shikigami (/ping, "trust PRs opened"). Everything else in the cluster is refused. When Caddy and Gitea move
-# into the cluster (D24) the Docker range goes for their namespaces.
+# plus the node for the kubelet's probes - Shikigami (/ping, "trust PRs opened") and Janus (/approve, D98).
+# Everything else in the cluster is refused. When Caddy and Gitea move into the cluster (D24) the Docker range goes
+# for their namespaces.
 networkPolicy:
   enabled: true
-  fromNamespaces: [shikigami]
+  fromNamespaces: [janus, shikigami]
