@@ -68,9 +68,15 @@ class _Comment(Incoming):
     body: str
 
 
+class _Entry(Incoming):
+    name: str
+    type: str  # file | dir | symlink | submodule
+
+
 _PULLS = TypeAdapter(list[_Pull])
 _CHANGED = TypeAdapter(list[_ChangedFile])
 _COMMENTS = TypeAdapter(list[_Comment])
+_ENTRIES = TypeAdapter(list[_Entry])
 
 
 class Gitea:
@@ -117,6 +123,18 @@ class Gitea:
             return None
         response.raise_for_status()
         return response.text
+
+    async def files_in(self, repo: str, folder: str, ref: str, private: bool = False) -> list[str]:
+        """The file names directly in a folder at a commit ([] if the folder isn't there)."""
+        response = await self._http.get(
+            f"{self._api}/repos/{self._org}/{repo}/contents/{quote(folder)}",
+            params={"ref": ref},
+            headers=self._auth() if private else {},
+        )
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        return [entry.name for entry in _ENTRIES.validate_json(response.content) if entry.type == "file"]
 
     async def branch_head(self, repo: str, branch: str = "main", private: bool = False) -> str:
         response = await self._http.get(
