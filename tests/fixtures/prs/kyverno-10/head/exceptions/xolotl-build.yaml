@@ -1,0 +1,18 @@
+apiVersion: policies.kyverno.io/v1
+kind: PolicyException
+metadata:
+  name: xolotl-build
+  namespace: kyverno
+  annotations:
+    meru.clockmost.com/reason: >-
+      Xolotl's build namespace (D32). Its job pods run rootless BuildKit, which needs privilege escalation,
+      SETUID/SETGID, SELinux container_engine_t and a custom seccomp profile - Pod Security "baseline", not
+      "restricted". Its check pods and the app (namespace xolotl) stay restricted. Every other rule still applies.
+      Written by Shikigami (D82).
+spec:
+  policyRefs:
+    - name: require-restricted-namespaces
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: xolotl-build-namespace-only
+      expression: "object.metadata.name == 'xolotl-build'"

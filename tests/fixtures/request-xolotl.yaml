@@ -1,0 +1,12 @@
+# Meru's merger (D87): checks Shikigami's trust PRs by rebuilding the expected files from the PR's base and merges only
+# an exact match; a mismatch stops its merges, asks Cú Chulainn to quarantine Shikigami and raises a Zabbix problem.
+# No public route: Shikigami pings it inside the cluster. Once onboarded, Mario removes Shikigami's admin on its repo.
+apiVersion: meru.clockmost.com/v1
+kind: App
+metadata:
+  name: xolotl
+spec:
+  owner: mario
+  description: Meru's merger - checks and merges Shikigami's trust PRs
+  route:
+    enabled: false
