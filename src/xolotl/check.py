@@ -1,6 +1,6 @@
-"""The verdict on one of Shikigami's PRs (D87): a trust PR in Meru/meru|kyverno|zot, or an app's stop or park in its
-own repo (cm-konk). Rebuild the files it should contain from the PR's own base commit and the app's request, and merge
-only an exact match. Pure: the sweep fetches the PR, its files and the request, this decides.
+"""The verdict on one of Shikigami's PRs (D87): a trust PR in Meru/meru|kyverno|zot, or in an app's own repo its
+marker (D99) or its stop or park (cm-konk). Rebuild the files it should contain from the PR's own base commit and the
+app's request, and merge only an exact match. Pure: the sweep fetches the PR, its files and the request, this decides.
 
 - not Shikigami's PR -> left alone (a person's change is a person's merge)
 - a title Shikigami doesn't write for this repo, a changed file that shouldn't change, a file that differs from the
@@ -13,7 +13,7 @@ import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from xolotl import expected, retired
+from xolotl import expected, marker, retired
 from xolotl.app_request import AppRequest
 from xolotl.models import Value
 
@@ -22,6 +22,8 @@ APP = r"([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)"
 # Retire, in the app's own repo (cm-konk): chore(retire): stop <app>, then chore(retire): park <app>.
 TITLE = re.compile(rf"^chore\(trust\): (onboard|retire) {APP} - (fence|signing key|push rule)$")
 RETIRE_TITLE = re.compile(rf"^chore\(retire\): (stop|park) {APP}$")
+# The marker, in the app's own repo (D99): chore(deploy): <app> is a Meru app.
+MARKER_TITLE = re.compile(rf"^chore\(deploy\): {APP} is a Meru app$")
 REPO = {"fence": "meru", "signing key": "kyverno", "push rule": "zot"}
 
 
@@ -38,19 +40,22 @@ def paths(app: str, what: str) -> tuple[str, ...]:
         "push rule": ("config.json",),
         "stop": ("deploy/values.yaml", "deploy/meru.yaml"),
         "park": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),  # values: read, never changed
+        "marker": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),
     }[what]
 
 
 class Title(Value):
     direction: str  # onboard | retire
     app: str
-    what: str  # fence | signing key | push rule | stop | park
+    what: str  # fence | signing key | push rule | stop | park | marker
 
 
 def parse_title(title: str) -> Title | None:
     if match := TITLE.match(title):
         direction, app, what = match.groups()
         return Title(direction=direction, app=app, what=what)
+    if match := MARKER_TITLE.match(title):
+        return Title(direction="onboard", app=match.group(1), what="marker")
     if match := RETIRE_TITLE.match(title):
         what, app = match.groups()
         return Title(direction="retire", app=app, what=what)
@@ -131,17 +136,24 @@ def rebuild(t: Title, base: Mapping[str, str | None], head: Mapping[str, str | N
             "keys/meru-signing-keys.yaml": expected.without_key(keys, app),
             path: None,
         }
+    if t.what == "marker":
+        if base.get("deploy/meru.yaml") is not None:
+            raise expected.BadLayout(f"{app} already has deploy/meru.yaml on main")
+        if not request.owner:
+            raise expected.BadLayout(f"{app}'s request names no owner")
+        template = _required(base, "deploy/meru.yaml.in")
+        return marker.marker_files(template, base.get("deploy/values.yaml"), request.owner, request.secrets)
     if t.what == "stop":
-        values, marker = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+        values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
         return {
             "deploy/values.yaml": retired.stopped_values(values),
-            "deploy/meru.yaml": retired.stopped_marker(marker),
+            "deploy/meru.yaml": retired.stopped_marker(deployed),
         }
     if t.what == "park":
-        values, marker = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
-        if not retired.is_stopped(values, marker):  # parked before the stop, Argo would drop an app that still runs
+        values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+        if not retired.is_stopped(values, deployed):  # parked before the stop, Argo would drop an app that still runs
             raise expected.BadLayout(f"{app} isn't stopped on main yet - the park waits for the stop")
-        return {"deploy/meru.yaml.in": retired.parked(marker), "deploy/meru.yaml": None}
+        return {"deploy/meru.yaml.in": retired.parked(deployed), "deploy/meru.yaml": None}
     config = _required(base, "config.json")
     return {"config.json": expected.with_push_rule(config, app) if onboard else expected.without_push_rule(config, app)}
 

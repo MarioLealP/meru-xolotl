@@ -60,7 +60,7 @@ class Sweeper:
         merged: list[str] = []
         refused: list[str] = []
         waiting: list[str] = []
-        for repo in (*self._repos, *await self._retiring()):
+        for repo in (*self._repos, *await self._app_repos()):
             try:
                 prs = await self._gitea.open_prs(repo)
             except httpx2.HTTPStatusError as e:  # e.g. an app repo Xolotl isn't on: the rest still gets its pass
@@ -90,9 +90,9 @@ class Sweeper:
             await self._ping_shikigami()
         return Outcome(merged=merged, refused=refused, waiting=waiting)
 
-    async def _retiring(self) -> list[str]:
-        """The repos of apps whose request is marked removed (D83): where Shikigami's stop and park PRs open
-        (cm-konk). Only with the bot - the requests repo is private."""
+    async def _app_repos(self) -> list[str]:
+        """The repos of every app with a request on main: where Shikigami's marker PR (D99) and its stop and park PRs
+        (cm-konk) open. Only with the bot - the requests repo is private."""
         if not self._gitea.can_write:
             return []
         at = await self._gitea.branch_head(self._requests_repo, private=True)
@@ -103,7 +103,7 @@ class Sweeper:
                 request = app_request.parse(text or "")
             except ValueError:
                 continue  # not a request Xolotl can read: nothing to retire from it
-            if request.removed and request.name not in self._repos:
+            if request.name not in self._repos:
                 repos.append(request.name)
         return sorted(repos)
 
