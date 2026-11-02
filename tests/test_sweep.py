@@ -165,11 +165,12 @@ GOLEM_REMOVED_REQUEST = (
 )
 
 
-async def test_a_retiring_apps_own_repo_is_swept_too():
+async def test_every_apps_own_repo_is_swept_too():
     fake = FakeGitea()
     fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
     outcome = await sweeper(fake).sweep()
-    assert fake.listed == ["meru", "kyverno", "zot", "golem"]  # removed request -> its repo is looked at too
+    # each request's repo: its marker PR (D99) while onboarding, its stop and park PRs while retiring (cm-konk)
+    assert fake.listed == ["meru", "kyverno", "zot", "golem", "xolotl"]
     assert outcome.merged == ["Meru/meru#25"]  # and the trust repos as before
 
 
