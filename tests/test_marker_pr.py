@@ -7,6 +7,7 @@ import pytest
 
 from xolotl.app_request import AppRequest, parse
 from xolotl.check import Proposal, Verdict, decide, parse_title, paths
+from xolotl.retired import ENABLED_LINE
 
 F = Path(__file__).parent / "fixtures" / "marker-tanuki"
 BASE = {p: (F / "base" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml.in")}
@@ -72,6 +73,18 @@ def test_a_marker_without_secrets_only_fills_the_owner():
 def test_wiring_the_request_didnt_ask_for_is_a_mismatch(values: str, why: str):
     decision = decide(marker_pr({**PR, "deploy/values.yaml": values}), TANUKI, "shikigami")
     assert decision.verdict == Verdict.MISMATCH and why in decision.reason
+
+
+def test_a_restores_marker_pr_is_merged():
+    # D106: what the retirement left (the stop's line, the secrets block of the first onboarding, the marker parked)
+    wired = PR["deploy/values.yaml"]
+    owner_end = wired.index("owner: mario") + len("owner: mario\n")
+    stopped = wired[:owner_end] + ENABLED_LINE + "\n" + wired[owner_end:]
+    base = {**BASE, "deploy/values.yaml": stopped}
+    decision = decide(marker_pr(base=files(base)), TANUKI, "shikigami")
+    assert decision.verdict == Verdict.MERGE, decision.reason
+    still_stopped = {**PR, "deploy/values.yaml": stopped}  # a PR that leaves the app stopped isn't the rebuild
+    assert decide(marker_pr(still_stopped, base=files(base)), TANUKI, "shikigami").verdict == Verdict.MISMATCH
 
 
 def test_another_owner_is_a_mismatch():
