@@ -61,8 +61,17 @@ def id_token(
 class Fake:
     """Authentik (token + JWKS), Gitea (Meru/requests PR #7) and Shikigami's /validate."""
 
-    def __init__(self, token: str, head: str = HEAD, state: str = "open", problems: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        head: str = HEAD,
+        state: str = "open",
+        problems: list[str] | None = None,
+        proposed: str = REQUEST,
+        main: str | None = None,
+    ) -> None:
         self.token, self.head, self.state, self.problems = token, head, state, problems or []
+        self.proposed, self.main = proposed, main
         self.redeemed: list[dict[str, list[str]]] = []
         self.writes: list[dict] = []
         self.comments: list[str] = []
@@ -93,10 +102,13 @@ class Fake:
         if tail == "/pulls/7/files":
             return httpx2.Response(200, json=[{"filename": "apps/golem.yaml"}])
         if tail == "/raw/apps/golem.yaml" and url.params["ref"] == HEAD:
-            return httpx2.Response(200, text=REQUEST)
+            return httpx2.Response(200, text=self.proposed)
         if tail == "/contents/apps/golem.yaml" and method == "GET":
-            return httpx2.Response(404)  # a new app: not on main yet
-        if tail == "/contents/apps/golem.yaml" and method == "POST":
+            if self.main is None:
+                return httpx2.Response(404)  # a new app: not on main yet
+            content = base64.b64encode(self.main.encode()).decode()
+            return httpx2.Response(200, json={"content": content, "encoding": "base64", "sha": "blob1"})
+        if tail == "/contents/apps/golem.yaml" and method in ("POST", "PUT"):
             self.writes.append(json.loads(request.content))
             return httpx2.Response(201, json={"commit": {"sha": "c0ffee"}, "content": {}})
         if tail == "/issues/7/comments" and method == "POST":
@@ -207,3 +219,13 @@ async def test_shikigamis_problems_on_todays_main_stop_the_write():
     with pytest.raises(Failed, match="host taken") as e:
         await run(fake)
     assert e.value.status == 422 and fake.writes == [] and not fake.closed
+
+
+async def test_approving_a_removal_stamps_who_and_when_for_charon():
+    main = REQUEST.replace("  name: golem\n", "  name: golem\n  approvedBy: akadmin\n")
+    removed = main.replace("  description: Test app\n", "  description: Test app\n  removed: true\n")
+    fake = Fake(id_token(), proposed=removed, main=main)
+    await run(fake)
+    text = written(fake)
+    assert "  approvedBy: akadmin\n  removedBy: akadmin\n  removedAt: 20" in text  # D105: the retention starts now
+    assert fake.writes[0]["sha"] == "blob1"  # an update of main's file

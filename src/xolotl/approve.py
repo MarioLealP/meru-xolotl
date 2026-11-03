@@ -5,8 +5,9 @@ Xolotl decides alone:
    and this decision (approval.verify)
 2. the PR: open, for main, still at that head, changing exactly one request file
 3. deny -> say who denied it, close the PR
-4. approve -> the file with metadata.approvedBy, checked once more by Shikigami against main as it is now, committed
-   to main by Xolotl (only Xolotl writes there, D69), then the PR is closed pointing at that commit
+4. approve -> the file with metadata.approvedBy (and on a removal removedBy/removedAt, D105), checked once more by
+   Shikigami against main as it is now, committed to main by Xolotl (only Xolotl writes there, D69), then the PR is
+   closed pointing at that commit
 
 One at a time (a lock): two approvals never race for the same main.
 """
@@ -14,6 +15,7 @@ One at a time (a lock): two approvals never race for the same main.
 import asyncio
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Annotated
 
 import httpx2
@@ -80,7 +82,7 @@ class Approvals:
                 log.warning("refused %s of %s/%s#%d: %s", ask.decision, self._org, self._repo, ask.pr, e)
                 raise Failed(403, str(e)) from e
             except stamp.Unstampable as e:
-                raise Failed(409, f"can't write approvedBy into the file: {e}") from e
+                raise Failed(409, f"can't write Xolotl's fields into the file: {e}") from e
             except Conflict as e:
                 raise Failed(409, str(e)) from e
             except httpx2.HTTPError as e:
@@ -113,11 +115,12 @@ class Approvals:
         proposed = await self._gitea.file(self._repo, path, ask.head, private=True)
         if proposed is None:
             raise Failed(409, f"PR #{ask.pr} deletes {path} - removals are a spec.removed: true change")
-        stamped = stamp.stamp(proposed, who.username)
+        current = await self._gitea.stored(self._repo, path)
+        removal = stamp.removal(proposed, current.text if current else None, who.username, datetime.now(UTC))
+        stamped = stamp.stamp(proposed, {"approvedBy": who.username, **removal})
         verdict = await self._validate(path, stamped)
         if verdict.problems:
             raise Failed(422, "Shikigami: " + "; ".join(verdict.problems))
-        current = await self._gitea.stored(self._repo, path)
         message = self._message(ask, pull.body, path, who, verdict.commit)
         commit = await self._gitea.write(self._repo, path, stamped, message, current.sha if current else None)
         await self._gitea.comment(self._repo, ask.pr, f"Approved by {who.username} in the atlas - on main in {commit}.")
