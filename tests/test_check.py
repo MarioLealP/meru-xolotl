@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from xolotl.app_request import AppRequest, parse
 from xolotl.check import Decision, Proposal, Verdict, decide, parse_title, paths
@@ -151,5 +152,5 @@ def test_the_request_fixtures_parse():
     golem = parse((FIXTURES / "request-golem.yaml").read_text())
     assert (golem.name, golem.removed) == ("golem", True)
     assert (XOLOTL.name, XOLOTL.removed) == ("xolotl", False)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         parse("kind: Database\n")

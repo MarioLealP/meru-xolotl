@@ -10,8 +10,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 from pydantic import SecretStr
 
-from xolotl.approval import OidcClient, nonce
-from xolotl.approve import Approvals, Ask, Failed
+from xolotl.approval import Decision, Keys, OidcClient, nonce
+from xolotl.approve import Approvals, Ask, FailedError
 from xolotl.gitea import Gitea
 
 ISSUER = "https://auth.test/application/o/xolotl-approvals/"
@@ -43,7 +43,7 @@ def jwks() -> dict:
 
 
 def id_token(
-    pr: int = 7, head: str = HEAD, decision: str = "approve", key: rsa.RSAPrivateKey = KEY, **over: object
+    pr: int = 7, head: str = HEAD, decision: Decision = "approve", key: rsa.RSAPrivateKey = KEY, **over: object
 ) -> str:
     claims = {
         "iss": ISSUER,
@@ -51,7 +51,7 @@ def id_token(
         "iat": int(time.time()),
         "exp": int(time.time()) + 300,
         "jti": "tok-1",
-        "nonce": nonce("Meru", "requests", pr, head, decision),  # ty: ignore[invalid-argument-type]
+        "nonce": nonce("Meru", "requests", pr, head, decision),
         "preferred_username": "akadmin",
         "groups": ["clockmost-admins", "meru-approvers"],
     } | over
@@ -82,32 +82,20 @@ class Fake:
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         url, path, method = request.url, unquote(request.url.path), request.method
         if url.host == "auth.test":
-            if path.endswith("/jwks/"):
-                return httpx2.Response(200, json=jwks())
-            self.redeemed.append(parse_qs(request.content.decode()))
-            if not self.code_ok:
-                return httpx2.Response(400, json={"error": "invalid_grant"})
-            return httpx2.Response(200, json={"id_token": self.token, "access_token": "x", "token_type": "Bearer"})
+            return self._authentik(request, path)
         if url.host == "shikigami.test":
             self.validated.append(json.loads(request.content))
             return httpx2.Response(200, json={"commit": "main1", "problems": self.problems})
         assert request.headers["authorization"] == "token tok"  # private repo: always the bot
         tail = path.removeprefix("/api/v1/repos/Meru/requests")
         if tail == "/pulls/7" and method == "GET":
-            body = "Request from Janus.\n\nRequested-By: agent-claude\nChecked-Against: main0"
-            pull: dict[str, object] = {"number": 7, "state": self.state, "merged": False, "body": body}
-            pull |= {"title": "feat(request): add app golem", "user": {"login": "janus"}}
-            pull |= {"base": {"ref": "main"}, "head": {"sha": self.head}}
-            return httpx2.Response(200, json=pull)
+            return self._pull()
         if tail == "/pulls/7/files":
             return httpx2.Response(200, json=[{"filename": "apps/golem.yaml"}])
         if tail == "/raw/apps/golem.yaml" and url.params["ref"] == HEAD:
             return httpx2.Response(200, text=self.proposed)
         if tail == "/contents/apps/golem.yaml" and method == "GET":
-            if self.main is None:
-                return httpx2.Response(404)  # a new app: not on main yet
-            content = base64.b64encode(self.main.encode()).decode()
-            return httpx2.Response(200, json={"content": content, "encoding": "base64", "sha": "blob1"})
+            return self._on_main()
         if tail == "/contents/apps/golem.yaml" and method in ("POST", "PUT"):
             self.writes.append(json.loads(request.content))
             return httpx2.Response(201, json={"commit": {"sha": "c0ffee"}, "content": {}})
@@ -119,18 +107,40 @@ class Fake:
             return httpx2.Response(201, json={})
         return httpx2.Response(500, text=f"unexpected {method} {path}")
 
+    def _authentik(self, request: httpx2.Request, path: str) -> httpx2.Response:
+        if path.endswith("/jwks/"):
+            return httpx2.Response(200, json=jwks())
+        self.redeemed.append(parse_qs(request.content.decode()))
+        if not self.code_ok:
+            return httpx2.Response(400, json={"error": "invalid_grant"})
+        return httpx2.Response(200, json={"id_token": self.token, "access_token": "x", "token_type": "Bearer"})
 
-async def run(fake: Fake, decision: str = "approve", head: str = HEAD):
+    def _pull(self) -> httpx2.Response:
+        body = "Request from Janus.\n\nRequested-By: agent-claude\nChecked-Against: main0"
+        pull: dict[str, object] = {"number": 7, "state": self.state, "merged": False, "body": body}
+        pull |= {"title": "feat(request): add app golem", "user": {"login": "janus"}}
+        pull |= {"base": {"ref": "main"}, "head": {"sha": self.head}}
+        return httpx2.Response(200, json=pull)
+
+    def _on_main(self) -> httpx2.Response:
+        if self.main is None:
+            return httpx2.Response(404)  # a new app: not on main yet
+        content = base64.b64encode(self.main.encode()).decode()
+        return httpx2.Response(200, json={"content": content, "encoding": "base64", "sha": "blob1"})
+
+
+async def run(fake: Fake, decision: Decision = "approve", head: str = HEAD):
     http = httpx2.AsyncClient(transport=httpx2.MockTransport(fake.handler))
     approvals = Approvals(
-        Gitea(http, "https://git.test", "Meru", "tok"),
-        http,
-        CLIENT,
-        "Meru",
-        "requests",
-        "http://shikigami.test/validate",
+        gitea=Gitea(http=http, url="https://git.test", org="Meru", token=SecretStr("tok")),
+        http=http,
+        client=CLIENT,
+        keys=Keys(http=http, url=CLIENT.jwks_url),
+        org="Meru",
+        repo="requests",
+        shikigami_validate_url="http://shikigami.test/validate",
     )
-    return await approvals.handle(Ask(pr=7, head=head, decision=decision, code="one-time"))  # ty: ignore[invalid-argument-type]
+    return await approvals.handle(Ask(pr=7, head=head, decision=decision, code="one-time"))
 
 
 def written(fake: Fake) -> str:
@@ -138,12 +148,13 @@ def written(fake: Fake) -> str:
     return base64.b64decode(write["content"]).decode()
 
 
-async def test_an_approval_writes_the_file_with_approvedBy_to_main_and_closes_the_pr():
+async def test_an_approval_writes_the_file_with_approved_by_to_main_and_closes_the_pr():
     fake = Fake(id_token())
     done = await run(fake)
     assert (done.decision, done.by, done.commit) == ("approve", "akadmin", "c0ffee")
     [form] = fake.redeemed
-    assert form["code"] == ["one-time"] and form["client_secret"] == ["s3cret"]
+    assert form["code"] == ["one-time"]
+    assert form["client_secret"] == ["s3cret"]
     text = written(fake)
     assert "  name: golem\n  approvedBy: akadmin\n\nspec:" in text
     assert text.startswith("# the requester's own comment stays\n")  # the file is edited, not rewritten
@@ -152,14 +163,17 @@ async def test_an_approval_writes_the_file_with_approvedBy_to_main_and_closes_th
     assert message.startswith("feat(request): approve apps/golem.yaml (#7)")
     assert "Requested-By: agent-claude\nApproved-By: akadmin\nApproval-Token: tok-1" in message
     assert fake.writes[0]["branch"] == "main"
-    assert fake.comments == ["Approved by akadmin in the atlas - on main in c0ffee."] and fake.closed
+    assert fake.comments == ["Approved by akadmin in the atlas - on main in c0ffee."]
+    assert fake.closed
 
 
 async def test_a_denial_closes_the_pr_and_writes_nothing():
     fake = Fake(id_token(decision="deny"))
     done = await run(fake, decision="deny")
     assert (done.decision, done.commit) == ("deny", None)
-    assert fake.writes == [] and fake.comments == ["Denied by akadmin in the atlas."] and fake.closed
+    assert fake.writes == []
+    assert fake.comments == ["Denied by akadmin in the atlas."]
+    assert fake.closed
 
 
 @pytest.mark.parametrize(
@@ -187,38 +201,45 @@ async def test_a_denial_closes_the_pr_and_writes_nothing():
 )
 async def test_anything_but_marios_yes_to_this_exact_pr_is_refused_and_nothing_happens(token: str, why: str):
     fake = Fake(token)
-    with pytest.raises(Failed, match=why) as e:
+    with pytest.raises(FailedError, match=why) as e:
         await run(fake)
     assert e.value.status == 403
-    assert fake.writes == [] and fake.comments == [] and not fake.closed
+    assert fake.writes == []
+    assert fake.comments == []
+    assert not fake.closed
 
 
 async def test_a_code_authentik_wont_redeem_is_refused():
     fake = Fake(id_token())
     fake.code_ok = False
-    with pytest.raises(Failed, match="didn't accept the approval code") as e:
+    with pytest.raises(FailedError, match="didn't accept the approval code") as e:
         await run(fake)
-    assert e.value.status == 403 and fake.writes == []
+    assert e.value.status == 403
+    assert fake.writes == []
 
 
 async def test_a_pr_that_moved_after_the_click_waits_for_a_new_look():
     fake = Fake(id_token(), head="c" * 40)  # pushed again after Mario looked
-    with pytest.raises(Failed, match="moved on") as e:
+    with pytest.raises(FailedError, match="moved on") as e:
         await run(fake)
-    assert e.value.status == 409 and fake.writes == [] and not fake.closed
+    assert e.value.status == 409
+    assert fake.writes == []
+    assert not fake.closed
 
 
 async def test_a_closed_pr_cant_be_approved():
-    with pytest.raises(Failed, match="already closed") as e:
+    with pytest.raises(FailedError, match="already closed") as e:
         await run(Fake(id_token(), state="closed"))
     assert e.value.status == 409
 
 
 async def test_shikigamis_problems_on_todays_main_stop_the_write():
     fake = Fake(id_token(), problems=["apps/golem.yaml: host taken by apps/other.yaml"])
-    with pytest.raises(Failed, match="host taken") as e:
+    with pytest.raises(FailedError, match="host taken") as e:
         await run(fake)
-    assert e.value.status == 422 and fake.writes == [] and not fake.closed
+    assert e.value.status == 422
+    assert fake.writes == []
+    assert not fake.closed
 
 
 async def test_approving_a_removal_stamps_who_and_when_for_charon():

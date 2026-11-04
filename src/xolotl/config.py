@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="XOLOTL_")
+    """Every setting; each one is read from XOLOTL_<NAME>."""
+
+    model_config = SettingsConfigDict(env_prefix="XOLOTL_", frozen=True)
 
     gitea_url: str = "https://git.clockmost.com"
     org: str = "Meru"

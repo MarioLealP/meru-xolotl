@@ -1,10 +1,12 @@
 """What an app's own deploy files must look like when it's retired (D85, cm-konk): the stop, then the parked marker.
+
 Xolotl's own version of the rules, written apart from Shikigami's (shikigami/retire.py) like expected.py - the two
-comment lines below are the shared contract, byte for byte. Pure text work, line by line, keeping every comment."""
+comment lines below are the shared contract, byte for byte. Pure text work, line by line, keeping every comment.
+"""
 
 import re
 
-from xolotl.expected import BadLayout
+from xolotl.expected import BadLayoutError
 
 ENABLED_LINE = "enabled: false # retired (D85): no workload until Charon purges the namespace"
 BUILD_LINE = "build: false # retired (D85): no build namespace or runner"
@@ -34,27 +36,31 @@ def stopped_values(values: str) -> str:
             body = line[:-1] if line.endswith("\n") else line
             lines[i] = f"{body}\n{ENABLED_LINE}" + ("\n" if line.endswith("\n") else "")
             return "".join(lines)
-    raise BadLayout("deploy/values.yaml: no top-level owner line")
+    raise BadLayoutError("deploy/values.yaml: no top-level owner line")
 
 
 def stopped_marker(marker: str) -> str:
     """deploy/meru.yaml with `build: false`."""
     if (changed := _replace_first(marker, _BUILD, BUILD_LINE)) is None:
-        raise BadLayout("deploy/meru.yaml: no `build:` line")
+        raise BadLayoutError("deploy/meru.yaml: no `build:` line")
     return changed
 
 
+def _has_line(text: str, pattern: str) -> bool:
+    return any(re.match(pattern, line) for line in text.splitlines())
+
+
 def is_stopped(values: str, marker: str) -> bool:
-    has = lambda text, pattern: any(re.match(pattern, line) for line in text.splitlines())  # noqa: E731
-    return has(values, r"enabled: false\b") and has(marker, r"build: false\b")
+    """Whether both files carry the stop: top-level `enabled: false` and `build: false`."""
+    return _has_line(values, r"enabled: false\b") and _has_line(marker, r"build: false\b")
 
 
 def parked(marker: str) -> str:
     """deploy/meru.yaml back into the template's deploy/meru.yaml.in: owner emptied, build back on."""
     owner_emptied = _replace_first(marker, _OWNER, 'owner: ""')
     if owner_emptied is None:
-        raise BadLayout("deploy/meru.yaml: no owner line")
+        raise BadLayoutError("deploy/meru.yaml: no owner line")
     built = _replace_first(owner_emptied, _BUILD, "build: true")
     if built is None:
-        raise BadLayout("deploy/meru.yaml: no build line")
+        raise BadLayoutError("deploy/meru.yaml: no build line")
     return built

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from xolotl.stamp import Unstampable, removal, stamp
+from xolotl.stamp import UnstampableError, removal, stamp
 
 A = {"approvedBy": "akadmin"}
 NOW = datetime(2026, 11, 3, 9, 30, 5, tzinfo=UTC)
@@ -16,11 +16,11 @@ spec:
 """
 
 
-def test_approvedBy_goes_last_in_metadata_and_nothing_else_moves():
+def test_approved_by_goes_last_in_metadata_and_nothing_else_moves():
     assert stamp(APP, A) == APP.replace("never changes\n", "never changes\n  approvedBy: akadmin\n")
 
 
-def test_an_earlier_approvedBy_is_replaced():
+def test_an_earlier_approved_by_is_replaced():
     once = stamp(APP, {"approvedBy": "someone"})
     assert stamp(once, A) == stamp(APP, A)
 
@@ -40,12 +40,12 @@ def test_metadata_at_the_end_without_a_final_newline():
     ],
 )
 def test_layouts_it_cant_edit_safely_are_refused(text: str, why: str):
-    with pytest.raises(Unstampable, match=why):
+    with pytest.raises(UnstampableError, match=why):
         stamp(text, A)
 
 
 def test_a_username_yaml_would_read_as_something_else_is_refused():
-    with pytest.raises(Unstampable, match="more than those fields"):
+    with pytest.raises(UnstampableError, match="more than those fields"):
         stamp(APP, {"approvedBy": "true"})
 
 
@@ -78,4 +78,5 @@ def test_a_restore_takes_both_out():
     fields = removal(restored, main, "akadmin", NOW)
     assert fields == {"removedBy": None, "removedAt": None}
     text = stamp(restored, {**A, **fields})
-    assert "removed" not in text and "  approvedBy: akadmin\nspec:" in text
+    assert "removed" not in text
+    assert "  approvedBy: akadmin\nspec:" in text

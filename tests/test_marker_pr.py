@@ -40,7 +40,8 @@ def marker_pr(head: dict[str, str] | None = None, **change) -> Proposal:
 
 def test_the_marker_title_parses_and_belongs_in_the_apps_own_repo():
     t = parse_title("chore(deploy): tanuki is a Meru app")
-    assert t is not None and (t.direction, t.app, t.what) == ("onboard", "tanuki", "marker")
+    assert t is not None
+    assert (t.direction, t.app, t.what) == ("onboard", "tanuki", "marker")
     assert decide(marker_pr(repo="meru"), TANUKI, "shikigami").verdict == Verdict.MISMATCH
 
 
@@ -72,7 +73,8 @@ def test_a_marker_without_secrets_only_fills_the_owner():
 )
 def test_wiring_the_request_didnt_ask_for_is_a_mismatch(values: str, why: str):
     decision = decide(marker_pr({**PR, "deploy/values.yaml": values}), TANUKI, "shikigami")
-    assert decision.verdict == Verdict.MISMATCH and why in decision.reason
+    assert decision.verdict == Verdict.MISMATCH
+    assert why in decision.reason
 
 
 def test_a_restores_marker_pr_is_merged():
@@ -95,7 +97,8 @@ def test_another_owner_is_a_mismatch():
 def test_a_repo_that_already_deploys_waits():
     base = {**BASE, "deploy/meru.yaml": PR["deploy/meru.yaml"]}
     decision = decide(marker_pr(base=files(base)), TANUKI, "shikigami")
-    assert decision.verdict == Verdict.WAIT and "already has deploy/meru.yaml" in decision.reason
+    assert decision.verdict == Verdict.WAIT
+    assert "already has deploy/meru.yaml" in decision.reason
 
 
 def test_a_removed_app_gets_no_marker():

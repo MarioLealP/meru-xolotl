@@ -1,6 +1,8 @@
-"""The verdict on one of Shikigami's PRs (D87): a trust PR in Meru/meru|kyverno|zot, or in an app's own repo its
-marker (D99) or its stop or park (cm-konk). Rebuild the files it should contain from the PR's own base commit and the
-app's request, and merge only an exact match. Pure: the sweep fetches the PR, its files and the request, this decides.
+"""The verdict on one of Shikigami's PRs (D87).
+
+That is a trust PR in Meru/meru|kyverno|zot, or in an app's own repo its marker (D99) or its stop or park (cm-konk).
+Rebuild the files it should contain from the PR's own base commit and the app's request, and merge only an exact match.
+Pure: the sweep fetches the PR, its files and the request, this decides.
 
 - not Shikigami's PR -> left alone (a person's change is a person's merge)
 - a title Shikigami doesn't write for this repo, a changed file that shouldn't change, a file that differs from the
@@ -45,12 +47,15 @@ def paths(app: str, what: str) -> tuple[str, ...]:
 
 
 class Title(Value):
+    """A PR title taken apart."""
+
     direction: str  # onboard | retire
     app: str
     what: str  # fence | signing key | push rule | stop | park | marker
 
 
 def parse_title(title: str) -> Title | None:
+    """The title's parts, or None if Shikigami doesn't write titles like it."""
     if match := TITLE.match(title):
         direction, app, what = match.groups()
         return Title(direction=direction, app=app, what=what)
@@ -75,6 +80,8 @@ class Proposal(Value):
 
 
 class Verdict(StrEnum):
+    """What the sweep does with a PR."""
+
     MERGE = "merge"
     MISMATCH = "mismatch"
     WAIT = "wait"
@@ -82,18 +89,20 @@ class Verdict(StrEnum):
 
 
 class Decision(Value):
+    """A verdict and the reason given for it."""
+
     verdict: Verdict
     reason: str
 
 
-class _Mismatch(Exception):
+class _MismatchError(Exception):
     pass
 
 
 def _required(files: Mapping[str, str | None], path: str) -> str:
     text = files.get(path)
     if text is None:
-        raise expected.BadLayout(f"no {path} at the PR's base")
+        raise expected.BadLayoutError(f"no {path} at the PR's base")
     return text
 
 
@@ -101,61 +110,91 @@ def _new_key(head: Mapping[str, str | None], app: str) -> str:
     """The app's key as the PR adds it, checked for shape - the one value Xolotl can't rebuild."""
     try:
         key = expected.keys_data(head.get("keys/meru-signing-keys.yaml") or "").get(app)
-    except expected.BadLayout as e:
-        raise _Mismatch(f"the PR's signing-keys file: {e}") from e
+    except expected.BadLayoutError as e:
+        raise _MismatchError(f"the PR's signing-keys file: {e}") from e
     if not isinstance(key, str):
-        raise _Mismatch(f"the PR adds no key for {app}")
+        raise _MismatchError(f"the PR adds no key for {app}")
     try:
         return expected.public_key(key)
     except ValueError as e:
-        raise _Mismatch(f"{app}'s key: {e}") from e
+        raise _MismatchError(f"{app}'s key: {e}") from e
 
 
-def rebuild(t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest) -> dict:
-    """path -> what it must hold after the PR (None = deleted), built from the base alone (+ the PR's key)."""
-    app, onboard = t.app, t.direction == "onboard"
-    if t.what == "fence":
-        kustomization, path = _required(base, "kustomization.yaml"), f"projects/{app}.yaml"
-        if onboard:
-            return {
-                "kustomization.yaml": expected.with_line(kustomization, "projects", path),
-                path: expected.fence(app, request.description),
-            }
-        return {"kustomization.yaml": expected.without_line(kustomization, path), path: None}
-    if t.what == "signing key":
-        kustomization, keys = _required(base, "kustomization.yaml"), _required(base, "keys/meru-signing-keys.yaml")
-        path = f"exceptions/{app}-build.yaml"
-        if onboard:
-            return {
-                "kustomization.yaml": expected.with_line(kustomization, "exceptions", path),
-                "keys/meru-signing-keys.yaml": expected.with_key(keys, app, _new_key(head, app)),
-                path: expected.build_exception(app),
-            }
+def _fence(t: Title, base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
+    app = t.app
+    kustomization, path = _required(base, "kustomization.yaml"), f"projects/{app}.yaml"
+    if t.direction == "onboard":
         return {
-            "kustomization.yaml": expected.without_line(kustomization, path),
-            "keys/meru-signing-keys.yaml": expected.without_key(keys, app),
-            path: None,
+            "kustomization.yaml": expected.with_line(kustomization, "projects", path),
+            path: expected.fence(app, request.description),
         }
-    if t.what == "marker":
-        if base.get("deploy/meru.yaml") is not None:
-            raise expected.BadLayout(f"{app} already has deploy/meru.yaml on main")
-        if not request.owner:
-            raise expected.BadLayout(f"{app}'s request names no owner")
-        template = _required(base, "deploy/meru.yaml.in")
-        return marker.marker_files(template, base.get("deploy/values.yaml"), request.owner, request.secrets)
-    if t.what == "stop":
-        values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+    return {"kustomization.yaml": expected.without_line(kustomization, path), path: None}
+
+
+def _signing_key(t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None]) -> dict[str, str | None]:
+    app = t.app
+    kustomization, keys = _required(base, "kustomization.yaml"), _required(base, "keys/meru-signing-keys.yaml")
+    path = f"exceptions/{app}-build.yaml"
+    if t.direction == "onboard":
         return {
-            "deploy/values.yaml": retired.stopped_values(values),
-            "deploy/meru.yaml": retired.stopped_marker(deployed),
+            "kustomization.yaml": expected.with_line(kustomization, "exceptions", path),
+            "keys/meru-signing-keys.yaml": expected.with_key(keys, app, _new_key(head, app)),
+            path: expected.build_exception(app),
         }
-    if t.what == "park":
-        values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
-        if not retired.is_stopped(values, deployed):  # parked before the stop, Argo would drop an app that still runs
-            raise expected.BadLayout(f"{app} isn't stopped on main yet - the park waits for the stop")
-        return {"deploy/meru.yaml.in": retired.parked(deployed), "deploy/meru.yaml": None}
+    return {
+        "kustomization.yaml": expected.without_line(kustomization, path),
+        "keys/meru-signing-keys.yaml": expected.without_key(keys, app),
+        path: None,
+    }
+
+
+def _marker(app: str, base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
+    if base.get("deploy/meru.yaml") is not None:
+        raise expected.BadLayoutError(f"{app} already has deploy/meru.yaml on main")
+    if not request.owner:
+        raise expected.BadLayoutError(f"{app}'s request names no owner")
+    template = _required(base, "deploy/meru.yaml.in")
+    return marker.marker_files(template, base.get("deploy/values.yaml"), request.owner, request.secrets)
+
+
+def _stop(base: Mapping[str, str | None]) -> dict[str, str | None]:
+    values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+    return {
+        "deploy/values.yaml": retired.stopped_values(values),
+        "deploy/meru.yaml": retired.stopped_marker(deployed),
+    }
+
+
+def _park(app: str, base: Mapping[str, str | None]) -> dict[str, str | None]:
+    values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+    if not retired.is_stopped(values, deployed):  # parked before the stop, Argo would drop an app that still runs
+        raise expected.BadLayoutError(f"{app} isn't stopped on main yet - the park waits for the stop")
+    return {"deploy/meru.yaml.in": retired.parked(deployed), "deploy/meru.yaml": None}
+
+
+def _push_rule(t: Title, base: Mapping[str, str | None]) -> dict[str, str | None]:
     config = _required(base, "config.json")
-    return {"config.json": expected.with_push_rule(config, app) if onboard else expected.without_push_rule(config, app)}
+    onboard = t.direction == "onboard"
+    return {
+        "config.json": expected.with_push_rule(config, t.app) if onboard else expected.without_push_rule(config, t.app)
+    }
+
+
+def rebuild(
+    t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
+) -> dict[str, str | None]:
+    """Each path and what it must hold after the PR (None = deleted), built from the base alone (+ the PR's key)."""
+    if t.what == "fence":
+        return _fence(t, base, request)
+    if t.what == "signing key":
+        return _signing_key(t, base, head)
+    if t.what == "marker":
+        return _marker(t.app, base, request)
+    if t.what == "stop":
+        return _stop(base)
+    if t.what == "park":
+        return _park(t.app, base)
+    return _push_rule(t, base)
 
 
 def _backing(t: Title, request: AppRequest | None) -> str | None:
@@ -172,6 +211,7 @@ def _backing(t: Title, request: AppRequest | None) -> str | None:
 
 
 def decide(p: Proposal, request: AppRequest | None, shikigami: str) -> Decision:
+    """Judge one PR: MERGE only if it is Shikigami's, backed by the request, and matches the rebuild exactly."""
     if p.author != shikigami:
         return Decision(verdict=Verdict.NOT_OURS, reason=f"opened by {p.author}, not {shikigami}")
     t = parse_title(p.title)
@@ -184,9 +224,9 @@ def decide(p: Proposal, request: AppRequest | None, shikigami: str) -> Decision:
     assert request is not None  # _backing said so
     try:
         want = rebuild(t, p.base, p.head, request)
-    except _Mismatch as e:
+    except _MismatchError as e:
         return Decision(verdict=Verdict.MISMATCH, reason=str(e))
-    except expected.BadLayout as e:
+    except expected.BadLayoutError as e:
         return Decision(verdict=Verdict.WAIT, reason=f"can't rebuild on the PR's base: {e}")
     should_change = {path for path, text in want.items() if text != p.base.get(path)}
     if p.changed != should_change:
