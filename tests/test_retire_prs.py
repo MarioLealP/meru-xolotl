@@ -50,7 +50,8 @@ def park_pr(**change) -> Proposal:
 
 def test_retire_titles_parse_and_belong_in_the_apps_own_repo():
     t = parse_title("chore(retire): park homunculus")
-    assert t is not None and (t.direction, t.app, t.what) == ("retire", "homunculus", "park")
+    assert t is not None
+    assert (t.direction, t.app, t.what) == ("retire", "homunculus", "park")
     assert decide(stop_pr(repo="meru"), REMOVED, "shikigami").verdict == Verdict.MISMATCH  # not in a trust repo
 
 
@@ -62,13 +63,15 @@ def test_shikigamis_stop_and_park_are_merged_for_a_removed_app(pr: Proposal):
 
 def test_retiring_an_app_whose_request_is_live_waits():
     decision = decide(stop_pr(), LIVE, "shikigami")
-    assert decision.verdict == Verdict.WAIT and "isn't marked removed" in decision.reason
+    assert decision.verdict == Verdict.WAIT
+    assert "isn't marked removed" in decision.reason
 
 
 def test_a_park_before_the_stop_is_on_main_waits():
     # parked first, Argo would drop the Application while its pods still run (preserveResourcesOnDeletion)
     decision = decide(park_pr(base=files(BASE, "park")), REMOVED, "shikigami")
-    assert decision.verdict == Verdict.WAIT and "isn't stopped on main yet" in decision.reason
+    assert decision.verdict == Verdict.WAIT
+    assert "isn't stopped on main yet" in decision.reason
 
 
 def test_a_stop_that_also_changes_the_image_is_a_mismatch():
@@ -80,4 +83,5 @@ def test_a_stop_that_also_changes_the_image_is_a_mismatch():
 def test_a_stop_touching_the_code_is_a_mismatch():
     changed = frozenset({"deploy/values.yaml", "deploy/meru.yaml", "src/app.py"})
     decision = decide(stop_pr(changed=changed), REMOVED, "shikigami")
-    assert decision.verdict == Verdict.MISMATCH and "src/app.py" in decision.reason
+    assert decision.verdict == Verdict.MISMATCH
+    assert "src/app.py" in decision.reason

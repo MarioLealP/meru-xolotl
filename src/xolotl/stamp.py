@@ -1,7 +1,9 @@
-"""Write Xolotl's own fields into a request file without touching anything else in it: who approved it
-(metadata.approvedBy, D98) and, on a removal, who removed it and when (removedBy/removedAt, D105 - Charon's retention
-counts from removedAt). A line edit, so the requester's layout and comments stay, then a check that parsing the result
-gives the same request with exactly those fields changed."""
+"""Write Xolotl's own fields into a request file without touching anything else in it.
+
+Who approved it (metadata.approvedBy, D98) and, on a removal, who removed it and when (removedBy/removedAt, D105 -
+Charon's retention counts from removedAt). A line edit, so the requester's layout and comments stay, then a check that
+parsing the result gives the same request with exactly those fields changed.
+"""
 
 import re
 from collections.abc import Mapping
@@ -11,7 +13,7 @@ from typing import Any
 import yaml
 
 
-class Unstampable(Exception):
+class UnstampableError(Exception):
     """The file isn't laid out so that the fields can be written in safely - left for a person."""
 
 
@@ -21,10 +23,12 @@ REMOVAL = ("removedBy", "removedAt")
 
 
 def removal(proposed: str, main: str | None, username: str, now: datetime) -> dict[str, str | None]:
-    """removedBy/removedAt for the approved file (None = take it out). Only Xolotl writes them, so what the PR says is
-    ignored: a removal keeps main's record if main already has the app removed with a date (an edit never restarts
-    the retention), else it's stamped now with the approver; a request that isn't removed (a restore, D106) has
-    neither."""
+    """The removedBy/removedAt for the approved file (None = take it out).
+
+    Only Xolotl writes them, so what the PR says is ignored: a removal keeps main's record if main already has the app
+    removed with a date (an edit never restarts the retention), else it's stamped now with the approver; a request
+    that isn't removed (a restore, D106) has neither.
+    """
     if not _removed(_load(proposed)):
         return dict.fromkeys(REMOVAL)
     before = _load(main) if main is not None else {}
@@ -36,13 +40,15 @@ def removal(proposed: str, main: str | None, username: str, now: datetime) -> di
 
 
 def stamp(text: str, fields: Mapping[str, str | None]) -> str:
-    """The file with each field as metadata's last lines, in the given order (replacing ones that are there); a field
-    set to None is taken out."""
+    """The file with each field as metadata's last lines, in the given order (replacing ones that are there).
+
+    A field set to None is taken out.
+    """
     lines = text.splitlines(keepends=True)
     try:
         start = next(i for i, line in enumerate(lines) if _METADATA.match(line))
     except StopIteration as e:
-        raise Unstampable("no top-level metadata: block") from e
+        raise UnstampableError("no top-level metadata: block") from e
     end, indent = start + 1, None
     while end < len(lines):
         match = _FIELD.match(lines[end])
@@ -52,10 +58,10 @@ def stamp(text: str, fields: Mapping[str, str | None]) -> str:
             if indent is None:
                 indent = match["indent"]
             elif match["indent"] != indent:
-                raise Unstampable("metadata's fields aren't on one indent")
+                raise UnstampableError("metadata's fields aren't on one indent")
         end += 1
     if indent is None:
-        raise Unstampable("metadata: has no fields")
+        raise UnstampableError("metadata: has no fields")
     while end > start + 1 and not lines[end - 1].strip():
         end -= 1  # keep blank lines after the block where they are
     ours = tuple(f"{indent}{key}:" for key in fields)
@@ -72,7 +78,7 @@ def _load(text: str) -> dict[str, Any]:
     try:
         doc = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise Unstampable(f"not YAML: {e}") from e
+        raise UnstampableError(f"not YAML: {e}") from e
     return doc if isinstance(doc, dict) else {}
 
 
@@ -85,16 +91,16 @@ def _timestamp(value: object) -> str:
     if isinstance(value, datetime):
         moment = value if value.tzinfo else value.replace(tzinfo=UTC)
         return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    raise Unstampable(f"removedAt on main isn't a timestamp: {value!r}")
+    raise UnstampableError(f"removedAt on main isn't a timestamp: {value!r}")
 
 
 def _check(before: str, after: str, fields: Mapping[str, str | None]) -> None:
     try:
         old, new = yaml.safe_load(before), yaml.safe_load(after)
     except yaml.YAMLError as e:
-        raise Unstampable(f"not YAML: {e}") from e
+        raise UnstampableError(f"not YAML: {e}") from e
     if not isinstance(old, dict) or not isinstance(old.get("metadata"), dict):
-        raise Unstampable("no metadata mapping")
+        raise UnstampableError("no metadata mapping")
     meta = {k: v for k, v in old["metadata"].items() if k not in fields}
     for key, value in fields.items():
         if value is not None:
@@ -103,4 +109,4 @@ def _check(before: str, after: str, fields: Mapping[str, str | None]) -> None:
                 datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC) if key == "removedAt" else value
             )
     if new != {**old, "metadata": meta}:
-        raise Unstampable(f"writing {', '.join(fields)} would change more than those fields")
+        raise UnstampableError(f"writing {', '.join(fields)} would change more than those fields")

@@ -1,5 +1,7 @@
-"""An app's request on Meru/requests main (`apps/<app>.yaml`) - the approval a trust PR has to stand on (D82). Only
-the fields the check needs, read on their own: Xolotl doesn't share Shikigami's request model."""
+"""An app's request on Meru/requests main (`apps/<app>.yaml`) - the approval a trust PR has to stand on (D82).
+
+Only the fields the check needs, read on their own: Xolotl doesn't share Shikigami's request model.
+"""
 
 from typing import Literal
 
@@ -10,6 +12,8 @@ from xolotl.models import Incoming, Value
 
 
 class AppRequest(Value):
+    """The request file's fields the check reads, flattened."""
+
     name: str
     description: str
     removed: bool

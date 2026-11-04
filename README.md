@@ -36,7 +36,7 @@ curl localhost:8080/heartbeat   # no token: sweeps read-only and log
 ## Development
 
 ```sh
-scripts/check.sh   # lint, format, types, lockfile, tests - exactly what CI runs
+scripts/check.sh   # lint, format, types, file size, lockfile, pip-audit, tests - exactly what CI runs
 ```
 
 ## Deploy

@@ -1,7 +1,10 @@
-"""What an app's trust files must look like (D82, D87): its fence in Meru/meru, its signing key + build exception in
-Meru/kyverno, its push rule in Meru/zot - each added at onboarding, removed at retirement. Xolotl's own version of
-the rules, written apart from Shikigami's on purpose: a bug on one side shows up as a mismatch instead of passing
-both. Pure text work; the same real files are the tests on both sides."""
+"""What an app's trust files must look like (D82, D87).
+
+Its fence in Meru/meru, its signing key + build exception in Meru/kyverno, its push rule in Meru/zot - each added at
+onboarding, removed at retirement. Xolotl's own version of the rules, written apart from Shikigami's on purpose: a bug
+on one side shows up as a mismatch instead of passing both. Pure text work; the same real files are the tests on both
+sides.
+"""
 
 import base64
 import json
@@ -10,11 +13,12 @@ import re
 import yaml
 
 
-class BadLayout(Exception):
+class BadLayoutError(Exception):
     """A trust file doesn't have the shape the rules add to - nothing to compare against."""
 
 
 def title(app: str) -> str:
+    """The app's name with a capital first letter, as the trust files write it."""
     return app[:1].upper() + app[1:]
 
 
@@ -71,12 +75,13 @@ def with_line(kustomization: str, folder: str, path: str) -> str:
     """`  - <path>` right after the last entry from the same folder."""
     entries = list(re.finditer(rf"^  - {re.escape(folder)}/[^\n]+$", kustomization, re.MULTILINE))
     if not entries:
-        raise BadLayout(f"kustomization.yaml has no `  - {folder}/...` entry")
+        raise BadLayoutError(f"kustomization.yaml has no `  - {folder}/...` entry")
     end = entries[-1].end()
     return f"{kustomization[:end]}\n  - {path}{kustomization[end:]}"
 
 
 def without_line(kustomization: str, path: str) -> str:
+    """The kustomization without its `  - <path>` line."""
     return re.sub(rf"^  - {re.escape(path)}\n", "", kustomization, count=1, flags=re.MULTILINE)
 
 
@@ -85,8 +90,10 @@ P256_HEADER = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d03010703420
 
 
 def public_key(pem: str) -> str:
-    """The key's PEM if it is exactly one P-256 public key, else ValueError: the one value Xolotl can't rebuild, so
-    it is checked for shape - the rest of the file is rebuilt around it."""
+    """The key's PEM if it is exactly one P-256 public key, else ValueError.
+
+    It's the one value Xolotl can't rebuild, so it is checked for shape - the rest of the file is rebuilt around it.
+    """
     lines = pem.strip().splitlines()
     if len(lines) < 3 or lines[0] != "-----BEGIN PUBLIC KEY-----" or lines[-1] != "-----END PUBLIC KEY-----":
         raise ValueError("not a PEM public key")
@@ -100,21 +107,23 @@ def public_key(pem: str) -> str:
 
 
 def keys_data(signing_keys: str) -> dict:
+    """The signing-keys file's `data` section, app name to key; BadLayoutError if it has none."""
     data = (yaml.safe_load(signing_keys) or {}).get("data")
     if not isinstance(data, dict):
-        raise BadLayout("keys/meru-signing-keys.yaml has no data section")
+        raise BadLayoutError("keys/meru-signing-keys.yaml has no data section")
     return data
 
 
 def with_key(signing_keys: str, app: str, key: str) -> str:
     """The app's key block appended - `data` is the file's last section."""
     if app in keys_data(signing_keys):
-        raise BadLayout(f"keys/meru-signing-keys.yaml already has a key for {app}")
+        raise BadLayoutError(f"keys/meru-signing-keys.yaml already has a key for {app}")
     block = f"  {app}: |\n" + "".join(f"    {line}\n" for line in key.splitlines())
     return signing_keys.rstrip("\n") + "\n" + block
 
 
 def without_key(signing_keys: str, app: str) -> str:
+    """The signing-keys file without the app's key block."""
     return re.sub(rf"^  {re.escape(app)}: \|\n(?:    [^\n]*\n)*", "", signing_keys, count=1, flags=re.MULTILINE)
 
 
@@ -131,19 +140,21 @@ def _repositories(config: str) -> tuple[dict, dict]:
     parsed = json.loads(config)
     repositories = parsed.get("http", {}).get("accessControl", {}).get("repositories")
     if not isinstance(repositories, dict):
-        raise BadLayout("config.json has no http.accessControl.repositories")
+        raise BadLayoutError("config.json has no http.accessControl.repositories")
     return parsed, repositories
 
 
 def with_push_rule(config: str, app: str) -> str:
+    """Zot's config.json with the app's push rule; BadLayoutError if it already has one."""
     parsed, repositories = _repositories(config)
     if f"meru/{app}" in repositories:
-        raise BadLayout(f"config.json already has a rule for meru/{app}")
+        raise BadLayoutError(f"config.json already has a rule for meru/{app}")
     repositories[f"meru/{app}"] = push_rule(app)
     return json.dumps(parsed, indent=2) + "\n"
 
 
 def without_push_rule(config: str, app: str) -> str:
+    """Zot's config.json without the app's push rule."""
     parsed, repositories = _repositories(config)
     repositories.pop(f"meru/{app}", None)
     return json.dumps(parsed, indent=2) + "\n"

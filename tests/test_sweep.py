@@ -4,6 +4,7 @@ from urllib.parse import unquote
 
 import httpx2
 import pytest
+from pydantic import SecretStr
 
 from xolotl.gitea import Gitea
 from xolotl.sweep import Sweeper
@@ -36,33 +37,18 @@ class FakeGitea:
 
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         url, path, method = request.url, unquote(request.url.path), request.method
-        if url.host == "shikigami.svc":
-            self.pings.append("shikigami")
-            return httpx2.Response(202, json={})
-        if url.host == "cuchulainn.svc":
-            self.quarantines.append(json.loads(request.content))
-            return httpx2.Response(202, json={})
+        if url.host in ("shikigami.svc", "cuchulainn.svc"):
+            return self._service(request)
         repo = path.removeprefix("/api/v1/repos/Meru/").split("/", 1)[0]
         tail = path.removeprefix(f"/api/v1/repos/Meru/{repo}")
         if tail == "/pulls":
-            self.listed.append(repo)
-            if repo in self.unlistable:
-                return httpx2.Response(500)
-            prs = [] if repo != "meru" else [self._pr()]
-            return httpx2.Response(200, json=prs)
+            return self._list(repo)
         if tail == "/pulls/25/files":
             return httpx2.Response(200, json=[{"filename": f} for f in self.meta["changed"]])
         if tail == "/contents/apps":
-            if "authorization" not in request.headers:
-                return httpx2.Response(404)
-            names = [path.removeprefix("apps/") for (r, _), fs in self.files.items() if r == repo for path in fs]
-            return httpx2.Response(200, json=[{"name": n, "type": "file"} for n in sorted(set(names))])
+            return self._folder(request, repo)
         if tail.startswith("/raw/"):
-            files = self.files.get((repo, url.params["ref"]), {})
-            name = tail.removeprefix("/raw/")
-            if repo == "requests" and "authorization" not in request.headers:
-                return httpx2.Response(404)
-            return httpx2.Response(200, text=files[name]) if name in files else httpx2.Response(404)
+            return self._raw(request, repo, tail.removeprefix("/raw/"))
         if tail == "/branches/main":
             return httpx2.Response(200, json={"commit": {"id": "r1"}})
         if tail == "/pulls/25/merge" and method == "POST":
@@ -74,6 +60,32 @@ class FakeGitea:
             self.comments.append(json.loads(request.content)["body"])
             return httpx2.Response(201, json={})
         return httpx2.Response(500, text=f"unexpected {method} {path}")
+
+    def _service(self, request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "shikigami.svc":
+            self.pings.append("shikigami")
+        else:
+            self.quarantines.append(json.loads(request.content))
+        return httpx2.Response(202, json={})
+
+    def _list(self, repo: str) -> httpx2.Response:
+        self.listed.append(repo)
+        if repo in self.unlistable:
+            return httpx2.Response(500)
+        prs = [] if repo != "meru" else [self._pr()]
+        return httpx2.Response(200, json=prs)
+
+    def _folder(self, request: httpx2.Request, repo: str) -> httpx2.Response:
+        if "authorization" not in request.headers:
+            return httpx2.Response(404)
+        names = [path.removeprefix("apps/") for (r, _), fs in self.files.items() if r == repo for path in fs]
+        return httpx2.Response(200, json=[{"name": n, "type": "file"} for n in sorted(set(names))])
+
+    def _raw(self, request: httpx2.Request, repo: str, name: str) -> httpx2.Response:
+        files = self.files.get((repo, request.url.params["ref"]), {})
+        if repo == "requests" and "authorization" not in request.headers:
+            return httpx2.Response(404)
+        return httpx2.Response(200, text=files[name]) if name in files else httpx2.Response(404)
 
     def _pr(self) -> dict:
         return {
@@ -89,13 +101,13 @@ class FakeGitea:
 def sweeper(fake: FakeGitea, token: str | None = "tok") -> Sweeper:
     http = httpx2.AsyncClient(transport=httpx2.MockTransport(fake.handler))
     return Sweeper(
-        Gitea(http, "https://git.test", "Meru", token),
-        http,
-        ("meru", "kyverno", "zot"),
-        "requests",
-        "shikigami",
-        "http://shikigami.svc/ping",
-        "http://cuchulainn.svc/quarantine",
+        gitea=Gitea(http=http, url="https://git.test", org="Meru", token=SecretStr(token) if token else None),
+        http=http,
+        repos=("meru", "kyverno", "zot"),
+        requests_repo="requests",
+        shikigami="shikigami",
+        shikigami_ping_url="http://shikigami.svc/ping",
+        cuchulainn_url="http://cuchulainn.svc/quarantine",
     )
 
 
@@ -120,9 +132,11 @@ async def test_a_mismatch_is_refused_commented_once_and_reported():
     outcome = await s.sweep()
     await s.sweep()  # a second pass says nothing new
     assert outcome.refused == ["Meru/meru#25"]
-    assert fake.merges == [] and fake.pings == []
+    assert fake.merges == []
+    assert fake.pings == []
     [comment] = fake.comments
-    assert "doesn't match" in comment and "<!-- xolotl head -->" in comment
+    assert "doesn't match" in comment
+    assert "<!-- xolotl head -->" in comment
     assert fake.quarantines[0]["target"] == "shikigami"
     assert fake.quarantines[0]["evidence"] == {"repo": "Meru/meru", "pr": 25, "head": "head", "base": "base"}
 
@@ -152,8 +166,7 @@ async def test_a_matching_pr_that_conflicts_waits_with_a_comment():
 async def test_cuchulainn_down_is_logged_not_fatal(caplog: pytest.LogCaptureFixture):
     fence = (PR25 / "head" / "projects/xolotl.yaml").read_text() + "# extra\n"
     fake = FakeGitea(head_fence=fence)
-    s = sweeper(fake)
-    s._cuchulainn_url = "http://nowhere.svc/quarantine"
+    s = sweeper(fake).model_copy(update={"cuchulainn_url": "http://nowhere.svc/quarantine"})
     outcome = await s.sweep()
     assert outcome.refused == ["Meru/meru#25"]
     assert "Cú Chulainn not told" in caplog.text
@@ -167,7 +180,7 @@ GOLEM_REMOVED_REQUEST = (
 
 async def test_every_apps_own_repo_is_swept_too():
     fake = FakeGitea()
-    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.files["requests", "r1"]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
     outcome = await sweeper(fake).sweep()
     # each request's repo: its marker PR (D99) while onboarding, its stop and park PRs while retiring (cm-konk)
     assert fake.listed == ["meru", "kyverno", "zot", "golem", "xolotl"]
@@ -176,7 +189,7 @@ async def test_every_apps_own_repo_is_swept_too():
 
 async def test_a_repo_xolotl_cant_list_is_skipped_not_fatal(caplog: pytest.LogCaptureFixture):
     fake = FakeGitea()
-    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.files["requests", "r1"]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
     fake.unlistable = {"golem"}
     outcome = await sweeper(fake).sweep()
     assert outcome.merged == ["Meru/meru#25"]
@@ -185,7 +198,7 @@ async def test_a_repo_xolotl_cant_list_is_skipped_not_fatal(caplog: pytest.LogCa
 
 async def test_an_unlistable_repo_is_warned_about_once_until_it_lists_again(caplog: pytest.LogCaptureFixture):
     fake = FakeGitea()
-    fake.files[("requests", "r1")]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.files["requests", "r1"]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
     fake.unlistable = {"golem"}
     s = sweeper(fake)
     await s.sweep()
