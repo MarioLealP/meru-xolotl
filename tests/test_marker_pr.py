@@ -113,3 +113,52 @@ def test_the_request_gives_owner_and_secret_names():
         "    - name: discord-token\n    - name: session-key\n      generate: true\n"
     )
     assert parse(text) == TANUKI
+
+
+def test_a_change_entry_in_the_request_is_read():
+    text = (
+        "apiVersion: meru.clockmost.com/v1\nkind: App\nmetadata:\n  name: tanuki\n"
+        "spec:\n  owner: mario\n  description: Test app\n  secrets:\n"
+        "    - name: discord-token\n      entry: env-20261105-a1b2c3\n    - name: session-key\n"
+    )
+    assert parse(text).entries == (("discord-token", "env-20261105-a1b2c3"),)
+
+
+@pytest.mark.parametrize("entry", ["env-", "other", "env-20261105-A1B2C3", "env-20261105-a1b2c3/x"])
+def test_an_entry_that_isnt_env_or_a_change_name_is_refused(entry: str):
+    text = (
+        "apiVersion: meru.clockmost.com/v1\nkind: App\nmetadata:\n  name: tanuki\n"
+        f"spec:\n  owner: mario\n  description: Test app\n  secrets:\n    - name: a\n      entry: {entry}\n"
+    )
+    with pytest.raises(ValueError, match="entry"):
+        parse(text)
+
+
+def test_a_restore_after_a_change_rebuilds_shikigamis_block_byte_for_byte():
+    # The same text Shikigami's test_a_restore_after_a_change_wires_each_name_to_its_entry expects (the contract).
+    from xolotl.marker import SECRETS_COMMENT, wired
+
+    want = (
+        "name: echo\nowner: mario\n\n" + SECRETS_COMMENT + "\n"
+        "externalSecrets:\n  env: {}\n  env-20261105-a1b2c3: {}\n"
+        "secretEnv:\n"
+        "  DISCORD_TOKEN:\n    secret: env\n    key: discord-token\n"
+        "  API_KEY:\n    secret: env-20261105-a1b2c3\n    key: api-key\n"
+    )
+    entries = (("api-key", "env-20261105-a1b2c3"),)
+    assert wired("name: echo\nowner: mario\n", ("discord-token", "api-key"), entries) == want
+    assert wired(want, ("discord-token", "api-key"), entries) == want  # already there: kept
+
+
+def test_a_marker_pr_wired_to_a_change_entry_needs_the_request_to_say_so():
+    moved = (("discord-token", "env-20261105-a1b2c3"),)
+    head = dict(PR)
+    head["deploy/values.yaml"] = (
+        PR["deploy/values.yaml"]
+        .replace("  env: {}\n", "  env-20261105-a1b2c3: {}\n  env: {}\n")
+        .replace(
+            "    secret: env\n    key: discord-token\n", "    secret: env-20261105-a1b2c3\n    key: discord-token\n"
+        )
+    )
+    assert decide(marker_pr(head), TANUKI.model_copy(update={"entries": moved}), "shikigami").verdict == Verdict.MERGE
+    assert decide(marker_pr(head), TANUKI, "shikigami").verdict != Verdict.MERGE  # the request doesn't move it

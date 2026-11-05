@@ -154,7 +154,9 @@ def _marker(app: str, base: Mapping[str, str | None], request: AppRequest) -> di
     if not request.owner:
         raise expected.BadLayoutError(f"{app}'s request names no owner")
     template = _required(base, "deploy/meru.yaml.in")
-    return marker.marker_files(template, base.get("deploy/values.yaml"), request.owner, request.secrets)
+    return marker.marker_files(
+        template, base.get("deploy/values.yaml"), request.owner, request.secrets, request.entries
+    )
 
 
 def _stop(base: Mapping[str, str | None]) -> dict[str, str | None]:
