@@ -106,6 +106,7 @@ def sweeper(fake: FakeGitea, token: str | None = "tok") -> Sweeper:
         repos=("meru", "kyverno", "zot"),
         requests_repo="requests",
         shikigami="shikigami",
+        charon="charon",
         shikigami_ping_url="http://shikigami.svc/ping",
         cuchulainn_url="http://cuchulainn.svc/quarantine",
     )
@@ -182,8 +183,9 @@ async def test_every_apps_own_repo_is_swept_too():
     fake = FakeGitea()
     fake.files["requests", "r1"]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
     outcome = await sweeper(fake).sweep()
-    # each request's repo: its marker PR (D99) while onboarding, its stop and park PRs while retiring (cm-konk)
-    assert fake.listed == ["meru", "kyverno", "zot", "golem", "xolotl"]
+    # each request's repo: its marker PR (D99) while onboarding, its stop and park PRs while retiring (cm-konk);
+    # then Meru/requests itself, for Charon's request-file deletions (cm-mr2a)
+    assert fake.listed == ["meru", "kyverno", "zot", "golem", "xolotl", "requests"]
     assert outcome.merged == ["Meru/meru#25"]  # and the trust repos as before
 
 
@@ -209,3 +211,70 @@ async def test_an_unlistable_repo_is_warned_about_once_until_it_lists_again(capl
     fake.unlistable = {"golem"}
     await s.sweep()
     assert caplog.text.count("Meru/golem: can't list its PRs") == 2
+
+
+class FakeRequests(FakeGitea):
+    """Meru/requests with one of Charon's PRs (#7) deleting a removed app's request."""
+
+    def __init__(self, author: str = "charon", deleted: bool = True) -> None:
+        super().__init__()
+        removed = REQUEST.replace("spec:\n", "spec:\n  removed: true\n").replace(
+            "metadata:\n", "metadata:\n  removedAt: 2026-01-01T00:00:00Z\n", 1
+        )
+        self.charon_pr = {
+            "number": 7,
+            "title": "chore(purge): delete xolotl request",
+            "user": {"login": author},
+            "merge_base": "r1",
+            "head": {"sha": "h7"},
+            "mergeable": True,
+        }
+        self.files["requests", "r1"] = {"apps/xolotl.yaml": removed}
+        self.files["requests", "h7"] = {} if deleted else {"apps/xolotl.yaml": removed}
+
+    def handler(self, request: httpx2.Request) -> httpx2.Response:
+        path, method = unquote(request.url.path), request.method
+        base = "/api/v1/repos/Meru/requests"
+        if path == f"{base}/pulls":
+            if "authorization" not in request.headers:
+                return httpx2.Response(404)
+            return httpx2.Response(200, json=[self.charon_pr])
+        if path == f"{base}/pulls/7/files":
+            return httpx2.Response(200, json=[{"filename": "apps/xolotl.yaml"}])
+        if path == f"{base}/pulls/7/merge" and method == "POST":
+            self.merges.append(json.loads(request.content))
+            return httpx2.Response(200)
+        if path == f"{base}/issues/7/comments" and method == "GET":
+            return httpx2.Response(200, json=[{"body": body} for body in self.comments])
+        if path == f"{base}/issues/7/comments" and method == "POST":
+            self.comments.append(json.loads(request.content)["body"])
+            return httpx2.Response(201, json={})
+        return super().handler(request)
+
+    def _list(self, repo: str) -> httpx2.Response:
+        self.listed.append(repo)
+        return httpx2.Response(200, json=[])  # no trust PRs: only Charon's
+
+
+async def test_charons_deletion_of_a_purged_request_is_merged():
+    fake = FakeRequests()
+    outcome = await sweeper(fake).sweep()
+    assert outcome.merged == ["Meru/requests#7"]
+    [merge] = fake.merges
+    assert merge["head_commit_id"] == "h7"
+    assert fake.quarantines == []
+
+
+async def test_charon_editing_a_request_is_refused_and_reported():
+    fake = FakeRequests(deleted=False)
+    outcome = await sweeper(fake).sweep()
+    assert outcome.refused == ["Meru/requests#7"]
+    assert fake.merges == []
+    assert fake.quarantines[0]["target"] == "charon"
+
+
+async def test_a_persons_request_pr_is_not_touched_by_the_purge_pass():
+    fake = FakeRequests(author="MarioGLealP")
+    outcome = await sweeper(fake).sweep()
+    assert (outcome.merged, outcome.refused, outcome.waiting) == ([], [], [])
+    assert fake.merges == fake.comments == []

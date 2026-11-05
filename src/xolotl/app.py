@@ -62,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 repos=s.trust_repos,
                 requests_repo=s.requests_repo,
                 shikigami=s.shikigami_user,
+                charon=s.charon_user,
                 shikigami_ping_url=s.shikigami_ping_url,
                 cuchulainn_url=s.cuchulainn_url,
             )

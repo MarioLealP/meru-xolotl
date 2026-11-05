@@ -3,10 +3,11 @@
 Only the fields the check needs, read on their own: Xolotl doesn't share Shikigami's request model.
 """
 
-from typing import Literal
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from xolotl.models import Incoming, Value
 
@@ -19,10 +20,16 @@ class AppRequest(Value):
     removed: bool
     owner: str = ""  # the marker PR's owner lines (D81)
     secrets: tuple[str, ...] = ()  # the names the marker PR wires as env vars (D99)
+    removed_at: datetime | None = None  # Xolotl's own stamp (D105), UTC; Charon's retention counts from it
+    retention: timedelta = timedelta(days=30)
+
+
+Days = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,3}d$")]
 
 
 class _Metadata(Incoming):
     name: str
+    removed_at: datetime | None = Field(default=None, alias="removedAt")  # YAML reads a timestamp as a datetime
 
 
 class _Secret(Incoming):
@@ -34,6 +41,7 @@ class _Spec(Incoming):
     owner: str = ""
     secrets: list[_Secret] = Field(default_factory=list)
     removed: bool = False
+    retention: Days = "30d"  # the same default as the request format
 
 
 class _Document(Incoming):
@@ -51,10 +59,15 @@ def parse(text: str) -> AppRequest:
     except yaml.YAMLError as e:
         raise ValueError(f"not YAML: {e}") from e
     doc = _Document.model_validate(loaded)
+    removed_at = doc.metadata.removed_at
+    if removed_at is not None:  # a timestamp without a zone is UTC, as stamp.py writes it
+        removed_at = (removed_at if removed_at.tzinfo else removed_at.replace(tzinfo=UTC)).astimezone(UTC)
     return AppRequest(
         name=doc.metadata.name,
         description=doc.spec.description,
         removed=doc.spec.removed,
         owner=doc.spec.owner,
         secrets=tuple(secret.name for secret in doc.spec.secrets),
+        removed_at=removed_at,
+        retention=timedelta(days=int(doc.spec.retention.removesuffix("d"))),
     )
