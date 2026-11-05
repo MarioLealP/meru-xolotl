@@ -20,11 +20,14 @@ class AppRequest(Value):
     removed: bool
     owner: str = ""  # the marker PR's owner lines (D81)
     secrets: tuple[str, ...] = ()  # the names the marker PR wires as env vars (D99)
+    entries: tuple[tuple[str, str], ...] = ()  # (name, OpenBao entry) for the names not in env (D123)
     removed_at: datetime | None = None  # Xolotl's own stamp (D105), UTC; Charon's retention counts from it
     retention: timedelta = timedelta(days=30)
 
 
 Days = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,3}d$")]
+# env, or env-<yyyymmdd>-<6 hex> from a change (D123) - checked here too: it becomes a Kubernetes name in the marker
+Entry = Annotated[str, StringConstraints(pattern=r"^env(-[0-9]{8}-[0-9a-f]{6})?$")]
 
 
 class _Metadata(Incoming):
@@ -34,6 +37,7 @@ class _Metadata(Incoming):
 
 class _Secret(Incoming):
     name: str
+    entry: Entry = "env"
 
 
 class _Spec(Incoming):
@@ -68,6 +72,7 @@ def parse(text: str) -> AppRequest:
         removed=doc.spec.removed,
         owner=doc.spec.owner,
         secrets=tuple(secret.name for secret in doc.spec.secrets),
+        entries=tuple((s.name, s.entry) for s in doc.spec.secrets if s.entry != "env"),
         removed_at=removed_at,
         retention=timedelta(days=int(doc.spec.retention.removesuffix("d"))),
     )

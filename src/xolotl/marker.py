@@ -42,17 +42,22 @@ def env_var(name: str) -> str:
     return name.upper().replace("-", "_")
 
 
-def wired(text: str, secrets: tuple[str, ...]) -> str:
-    """values.yaml with the request's secrets appended: ExternalSecret `env` + one env var per name.
+def wired(text: str, secrets: tuple[str, ...], entries: tuple[tuple[str, str], ...] = ()) -> str:
+    """values.yaml with the request's secrets appended: one ExternalSecret per OpenBao entry + one env var per name.
 
-    Kept if exactly that block already ends the file (a restore, D106: the first onboarding wrote it); other wiring is
-    refused.
+    `entries` pairs the names a change moved off `env` with their entry (D123); with none it is the D99 block. Each
+    entry used is listed once, first use first. Kept if exactly that block already ends the file (a restore, D106: the
+    first onboarding wrote it); other wiring is refused.
     """
     if not secrets:
         return text
-    lines = ["", SECRETS_COMMENT, "externalSecrets:", "  env: {}", "secretEnv:"]
+    moved = dict(entries)
+    entry = {name: moved.get(name, "env") for name in secrets}
+    lines = ["", SECRETS_COMMENT, "externalSecrets:"]
+    lines.extend(f"  {used}: {{}}" for used in dict.fromkeys(entry.values()))
+    lines.append("secretEnv:")
     for name in secrets:
-        lines.extend((f"  {env_var(name)}:", "    secret: env", f"    key: {name}"))
+        lines.extend((f"  {env_var(name)}:", f"    secret: {entry[name]}", f"    key: {name}"))
     block = "\n".join(lines) + "\n"
     if text.endswith(block):
         return text
@@ -61,7 +66,13 @@ def wired(text: str, secrets: tuple[str, ...]) -> str:
     return text + ("" if text.endswith("\n") else "\n") + block
 
 
-def marker_files(template: str, values: str | None, owner: str, secrets: tuple[str, ...]) -> dict[str, str | None]:
+def marker_files(
+    template: str,
+    values: str | None,
+    owner: str,
+    secrets: tuple[str, ...],
+    entries: tuple[tuple[str, str], ...] = (),
+) -> dict[str, str | None]:
     """Each path and what it must hold after the marker PR (None = deleted)."""
     want: dict[str, str | None] = {
         "deploy/meru.yaml": owned(template, owner, "deploy/meru.yaml.in"),
@@ -73,5 +84,5 @@ def marker_files(template: str, values: str | None, owner: str, secrets: tuple[s
         return want
     text = _STOPPED.sub("", values, count=1)  # a restore (D106): the retire stop's exact line goes
     text = owned(text, owner, "deploy/values.yaml") if owner_unset(text) else text
-    want["deploy/values.yaml"] = wired(text, secrets)
+    want["deploy/values.yaml"] = wired(text, secrets, entries)
     return want
