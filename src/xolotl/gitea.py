@@ -156,10 +156,12 @@ class Gitea(Service):
             raise NoTokenError("no Gitea token for Xolotl's bot yet")
         return {"Authorization": f"token {self.token.get_secret_value()}"}
 
-    async def open_prs(self, repo: str) -> list[PullRequest]:
+    async def open_prs(self, repo: str, private: bool = False) -> list[PullRequest]:
         """The repo's open PRs, at most 50."""
         response = await self.http.get(
-            f"{self._api}/repos/{self.org}/{repo}/pulls", params={"state": "open", "limit": 50}
+            f"{self._api}/repos/{self.org}/{repo}/pulls",
+            params={"state": "open", "limit": 50},
+            headers=self._auth() if private else {},
         )
         response.raise_for_status()
         return [pr.as_pull_request() for pr in _PULLS.validate_json(response.content)]
@@ -226,9 +228,11 @@ class Gitea(Service):
         response.raise_for_status()
         return True
 
-    async def comments(self, repo: str, number: int) -> list[str]:
+    async def comments(self, repo: str, number: int, private: bool = False) -> list[str]:
         """The bodies of a PR's comments."""
-        response = await self.http.get(f"{self._api}/repos/{self.org}/{repo}/issues/{number}/comments")
+        response = await self.http.get(
+            f"{self._api}/repos/{self.org}/{repo}/issues/{number}/comments", headers=self._auth() if private else {}
+        )
         response.raise_for_status()
         return [comment.body for comment in _COMMENTS.validate_json(response.content)]
 

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     trust_repos: tuple[str, ...] = ("meru", "kyverno", "zot")
     requests_repo: str = "requests"  # private: read with the token (the bot is a Read collaborator)
     shikigami_user: str = "shikigami"  # whose PRs are checked; anyone else's are a person's to merge
+    charon_user: str = "charon"  # whose request-file deletions are checked (cm-mr2a)
     # Xolotl's Gitea bot (D87): Write on the trust repos, Read on requests. Until the admin run makes it, Xolotl
     # checks and logs but merges, comments and reads requests nothing - every PR waits.
     gitea_token: SecretStr | None = None

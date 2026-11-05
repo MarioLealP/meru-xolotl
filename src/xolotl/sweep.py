@@ -5,11 +5,12 @@ doesn't repeat itself, across restarts too.
 """
 
 import logging
+from datetime import UTC, datetime
 
 import httpx2
 from pydantic import PrivateAttr
 
-from xolotl import app_request
+from xolotl import app_request, purged
 from xolotl.check import Decision, Proposal, Verdict, decide, parse_title, paths
 from xolotl.gitea import Gitea, PullRequest
 from xolotl.models import Service, Value
@@ -56,6 +57,7 @@ class Sweeper(Service):
     repos: tuple[str, ...]
     requests_repo: str
     shikigami: str
+    charon: str  # whose deletions in the requests repo are checked (cm-mr2a)
     shikigami_ping_url: str
     cuchulainn_url: str
     _unlisted: set[str] = PrivateAttr(default_factory=set)  # repos already warned about, until they list again
@@ -91,9 +93,48 @@ class Sweeper(Service):
                 else:
                     await self._say_once(repo, pr, f"Not merged yet: {decision.reason}.")
                     waiting.append(where)
+        await self._purges(merged, refused, waiting)
         if merged:
             await self._ping_shikigami()
         return Outcome(merged=merged, refused=refused, waiting=waiting)
+
+    async def _purges(self, merged: list[str], refused: list[str], waiting: list[str]) -> None:
+        """Charon's PRs in the requests repo: delete a purged app's request (cm-mr2a). Needs the bot: it's private."""
+        if not self.gitea.can_write:
+            return
+        repo = self.requests_repo
+        for pr in await self.gitea.open_prs(repo, private=True):
+            if pr.author != self.charon:
+                continue  # a person's or Shikigami's request PR: approved in the atlas, not here
+            where = f"Meru/{repo}#{pr.number}"
+            match = purged.TITLE.match(pr.title)
+            path = f"apps/{match.group(1)}.yaml" if match else None
+            main = await self.gitea.branch_head(repo, private=True)
+
+            async def at(ref: str, path: str | None = path) -> str | None:
+                return await self.gitea.file(repo, path, ref, private=True) if path else None
+
+            proposal = purged.PurgeProposal(
+                title=pr.title,
+                author=pr.author,
+                changed=await self.gitea.changed_files(repo, pr.number, private=True),
+                on_main=await at(main),
+                at_base=await at(pr.base),
+                at_head=await at(pr.head),
+            )
+            decision = purged.decide(proposal, self.charon, datetime.now(UTC))
+            log.info("%s %r: %s - %s", where, pr.title, decision.verdict, decision.reason)
+            if decision.verdict == Verdict.MERGE:
+                if await self._merge(repo, pr, decision, main):
+                    merged.append(where)
+                else:
+                    waiting.append(where)
+            elif decision.verdict == Verdict.MISMATCH:
+                await self._mismatch(repo, pr, decision, target=self.charon)
+                refused.append(where)
+            else:
+                await self._say_once(repo, pr, f"Not merged yet: {decision.reason}.")
+                waiting.append(where)
 
     async def _app_repos(self) -> list[str]:
         """The repos of every app with a request on main.
@@ -142,16 +183,19 @@ class Sweeper(Service):
         if not pr.mergeable:
             await self._say_once(repo, pr, "Matches the rebuild, but conflicts with main - needs re-proposing.")
             return False
-        message = (
-            f"Checked by Xolotl (D87): {decision.reason} - rebuilt from {pr.base[:12]}, "
-            f"backed by Meru/{self.requests_repo} at {(request_at or '')[:12]}."
-        )
+        if repo == self.requests_repo:
+            message = f"Checked by Xolotl (cm-mr2a): {decision.reason} - request on main at {(request_at or '')[:12]}."
+        else:
+            message = (
+                f"Checked by Xolotl (D87): {decision.reason} - rebuilt from {pr.base[:12]}, "
+                f"backed by Meru/{self.requests_repo} at {(request_at or '')[:12]}."
+            )
         merged = await self.gitea.merge(repo, pr.number, pr.head, f"{pr.title} (#{pr.number})", message)
         if not merged:
             await self._say_once(repo, pr, "Gitea refused the merge (conflict, or the PR changed after the check).")
         return merged
 
-    async def _mismatch(self, repo: str, pr: PullRequest, decision: Decision) -> None:
+    async def _mismatch(self, repo: str, pr: PullRequest, decision: Decision, target: str | None = None) -> None:
         await self._say_once(
             repo,
             pr,
@@ -160,8 +204,8 @@ class Sweeper(Service):
         )
         report = QuarantineReport(
             caller="xolotl",
-            target=self.shikigami,
-            reason=f"trust PR Meru/{repo}#{pr.number} doesn't match its rebuild: {decision.reason}",
+            target=target or self.shikigami,
+            reason=f"PR Meru/{repo}#{pr.number} doesn't match its rebuild: {decision.reason}",
             evidence=Evidence(repo=f"Meru/{repo}", pr=pr.number, head=pr.head, base=pr.base),
         )
         try:
@@ -173,7 +217,8 @@ class Sweeper(Service):
         """A comment, once per head commit - only with the bot (no token: the log has it)."""
         if not self.gitea.can_write:
             return
-        if any(marker(pr) in body for body in await self.gitea.comments(repo, pr.number)):
+        private = repo == self.requests_repo
+        if any(marker(pr) in body for body in await self.gitea.comments(repo, pr.number, private=private)):
             return
         await self.gitea.comment(repo, pr.number, f"{text}\n\n{marker(pr)}")
 
