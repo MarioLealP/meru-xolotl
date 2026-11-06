@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 
 import httpx2
+import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 
@@ -41,6 +42,11 @@ async def keep_sweeping(sweeper: Sweeper, wake: asyncio.Event, every: int) -> No
             log.info("sweep: merged %s, refused %s, waiting %s", outcome.merged, outcome.refused, outcome.waiting)
         except Exception:  # Gitea down, a bad answer, a PR's file that won't parse: the loop outlives any one pass
             log.exception("sweep failed")
+
+
+# Crash reports to GlitchTip (D125): SENTRY_DSN comes from nuwa-app's glitchtip.dsn; unset, the SDK stays off.
+# No local variables or request bodies in a report - either can hold a secret.
+sentry_sdk.init(include_local_variables=False, max_request_body_size="never")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
