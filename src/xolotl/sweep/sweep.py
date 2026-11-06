@@ -10,10 +10,11 @@ from datetime import UTC, datetime
 import httpx2
 from pydantic import PrivateAttr
 
-from xolotl import app_request, purged
-from xolotl.check import Decision, Proposal, Verdict, decide, parse_title, paths
-from xolotl.gitea import Gitea, PullRequest
-from xolotl.models import Service, Value
+from xolotl.clients.gitea import Gitea, PullRequest
+from xolotl.core import purged
+from xolotl.core.check import Decision, Proposal, Verdict, decide, parse_title, paths
+from xolotl.models import app_request
+from xolotl.models.base import Service, Value
 
 log = logging.getLogger(__name__)
 

@@ -6,10 +6,10 @@ import httpx2
 import pytest
 from pydantic import SecretStr
 
-from xolotl.gitea import Gitea
-from xolotl.sweep import Sweeper
+from xolotl.clients.gitea import Gitea
+from xolotl.sweep.sweep import Sweeper
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 PR25 = FIXTURES / "prs" / "meru-25"
 REQUEST = (FIXTURES / "request-xolotl.yaml").read_text()
 

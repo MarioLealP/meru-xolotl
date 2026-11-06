@@ -15,9 +15,9 @@ import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from xolotl import expected, marker, retired
-from xolotl.app_request import AppRequest
-from xolotl.models import Value
+from xolotl.core import expected, marker, retired
+from xolotl.models.app_request import AppRequest
+from xolotl.models.base import Value
 
 APP = r"([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)"
 # Shikigami's PR titles (Conventional Commits). Trust, in Meru/meru|kyverno|zot: chore(trust): onboard <app> - fence.

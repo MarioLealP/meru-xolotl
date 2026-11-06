@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from xolotl.check import Verdict
-from xolotl.purged import PurgeProposal, decide, title
+from xolotl.core.check import Verdict
+from xolotl.core.purged import PurgeProposal, decide, title
 
 NOW = datetime(2026, 12, 10, tzinfo=UTC)
 REMOVED = """apiVersion: meru.clockmost.com/v1

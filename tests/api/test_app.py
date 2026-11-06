@@ -2,7 +2,7 @@ import httpx2
 from fastapi import FastAPI
 from pydantic import SecretStr
 
-from xolotl.app import app, create_app
+from xolotl.api.app import app, create_app
 from xolotl.config import Settings
 
 NOWHERE = "http://127.0.0.1:9"  # nothing listens: every outside call fails at once

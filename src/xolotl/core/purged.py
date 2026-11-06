@@ -13,9 +13,9 @@ The last step of a retirement (D53): Charon has purged everything the app left a
 import re
 from datetime import datetime
 
-from xolotl import app_request
-from xolotl.check import APP, Decision, Verdict
-from xolotl.models import Value
+from xolotl.core.check import APP, Decision, Verdict
+from xolotl.models import app_request
+from xolotl.models.base import Value
 
 TITLE = re.compile(rf"^chore\(purge\): delete {APP} request$")
 

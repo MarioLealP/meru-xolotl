@@ -6,7 +6,7 @@ comment lines below are the shared contract, byte for byte. Pure text work, line
 
 import re
 
-from xolotl.expected import BadLayoutError
+from xolotl.core.expected import BadLayoutError
 
 ENABLED_LINE = "enabled: false # retired (D85): no workload until Charon purges the namespace"
 BUILD_LINE = "build: false # retired (D85): no build namespace or runner"

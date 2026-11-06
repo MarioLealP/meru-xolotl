@@ -10,9 +10,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 from pydantic import SecretStr
 
-from xolotl.approval import Decision, Keys, OidcClient, nonce
-from xolotl.approve import Approvals, Ask, FailedError
-from xolotl.gitea import Gitea
+from xolotl.approve.approval import Decision, Keys, OidcClient, nonce
+from xolotl.approve.approve import Approvals, Ask, FailedError
+from xolotl.clients.gitea import Gitea
 
 ISSUER = "https://auth.test/application/o/xolotl-approvals/"
 HEAD = "a" * 40

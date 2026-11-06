@@ -16,12 +16,12 @@ Until its Gitea bot exists (`XOLOTL_GITEA_TOKEN`), it checks and logs only.
 
 | file | job |
 |------|-----|
-| `src/xolotl/expected.py` | the trust rules: fence, build exception, key block, push rule, kustomization lines |
-| `src/xolotl/app_request.py` | the three request fields the check needs |
-| `src/xolotl/check.py` | the verdict for one PR: merge / mismatch / wait / not ours |
-| `src/xolotl/gitea.py` | the Gitea calls |
-| `src/xolotl/sweep.py` | one pass over the open PRs, acting on each verdict |
-| `src/xolotl/app.py` | `/heartbeat`, `/ping`, the sweep loop |
+| `src/xolotl/core/expected.py` | the trust rules: fence, build exception, key block, push rule, kustomization lines |
+| `src/xolotl/models/app_request.py` | the three request fields the check needs |
+| `src/xolotl/core/check.py` | the verdict for one PR: merge / mismatch / wait / not ours |
+| `src/xolotl/clients/gitea.py` | the Gitea calls |
+| `src/xolotl/sweep/sweep.py` | one pass over the open PRs, acting on each verdict |
+| `src/xolotl/api/app.py` | `/heartbeat`, `/ping`, the sweep loop |
 
 The tests run the check on the nine trust PRs Shikigami really opened (`tests/fixtures/prs/`) and on tampered copies.
 
@@ -29,7 +29,7 @@ The tests run the check on the nine trust PRs Shikigami really opened (`tests/fi
 
 ```sh
 uv sync
-uv run uvicorn --app-dir src xolotl.app:app --port 8080
+uv run uvicorn --app-dir src xolotl.api.app:app --port 8080
 curl localhost:8080/heartbeat   # no token: sweeps read-only and log
 ```
 

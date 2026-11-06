@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from xolotl.app_request import AppRequest, parse
-from xolotl.check import Proposal, Verdict, decide, parse_title, paths
-from xolotl.retired import ENABLED_LINE
+from xolotl.core.check import Proposal, Verdict, decide, parse_title, paths
+from xolotl.core.retired import ENABLED_LINE
+from xolotl.models.app_request import AppRequest, parse
 
-F = Path(__file__).parent / "fixtures" / "marker-tanuki"
+F = Path(__file__).parent.parent / "fixtures" / "marker-tanuki"
 BASE = {p: (F / "base" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml.in")}
 PR = {p: (F / "pr" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml")}
 TANUKI = AppRequest(
@@ -136,7 +136,7 @@ def test_an_entry_that_isnt_env_or_a_change_name_is_refused(entry: str):
 
 def test_a_restore_after_a_change_rebuilds_shikigamis_block_byte_for_byte():
     # The same text Shikigami's test_a_restore_after_a_change_wires_each_name_to_its_entry expects (the contract).
-    from xolotl.marker import SECRETS_COMMENT, wired
+    from xolotl.core.marker import SECRETS_COMMENT, wired
 
     want = (
         "name: echo\nowner: mario\n\n" + SECRETS_COMMENT + "\n"
@@ -200,7 +200,7 @@ def test_a_dsn_that_isnt_ours_is_a_mismatch(dsn: str):
 
 
 def test_the_glitchtip_block_is_shikigamis_text():
-    from xolotl.marker import with_glitchtip
+    from xolotl.core.marker import with_glitchtip
 
     assert with_glitchtip("name: echo\nowner: mario\n", DSN) == "name: echo\nowner: mario\n" + GLITCHTIP_BLOCK
     assert with_glitchtip("glitchtip:\n  dsn: ''\n", DSN) == "glitchtip:\n  dsn: ''\n"  # the owner's own: kept

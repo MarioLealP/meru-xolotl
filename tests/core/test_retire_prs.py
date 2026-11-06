@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from xolotl.app_request import AppRequest
-from xolotl.check import Proposal, Verdict, decide, parse_title, paths
+from xolotl.core.check import Proposal, Verdict, decide, parse_title, paths
+from xolotl.models.app_request import AppRequest
 
-F = Path(__file__).parent / "fixtures" / "retire-homunculus"
+F = Path(__file__).parent.parent / "fixtures" / "retire-homunculus"
 BASE = {p: (F / "base" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml")}
 STOPPED = {**BASE, **{p: (F / "stop" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml")}}
 PARKED_MARKER = (F / "park" / "deploy/meru.yaml.in").read_text()

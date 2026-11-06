@@ -10,7 +10,7 @@ from urllib.parse import quote
 import httpx2
 from pydantic import SecretStr, TypeAdapter
 
-from xolotl.models import Incoming, Service, Value
+from xolotl.models.base import Incoming, Service, Value
 
 
 class NoTokenError(Exception):

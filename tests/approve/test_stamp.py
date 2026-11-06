@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from xolotl.stamp import UnstampableError, removal, stamp
+from xolotl.approve.stamp import UnstampableError, removal, stamp
 
 A = {"approvedBy": "akadmin"}
 NOW = datetime(2026, 11, 3, 9, 30, 5, tzinfo=UTC)

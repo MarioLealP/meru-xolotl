@@ -22,9 +22,9 @@ from typing import Annotated
 import httpx2
 from pydantic import Field, StringConstraints
 
-from xolotl import approval, stamp
-from xolotl.gitea import ConflictError, Gitea
-from xolotl.models import Incoming, Service, Value
+from xolotl.approve import approval, stamp
+from xolotl.clients.gitea import ConflictError, Gitea
+from xolotl.models.base import Incoming, Service, Value
 
 log = logging.getLogger("xolotl.approve")
 REQUEST_FILE = re.compile(r"^(apps|databases)/[a-z0-9]([-a-z0-9]*[a-z0-9])?\.yaml$")
