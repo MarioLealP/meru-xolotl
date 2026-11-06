@@ -162,3 +162,45 @@ def test_a_marker_pr_wired_to_a_change_entry_needs_the_request_to_say_so():
     )
     assert decide(marker_pr(head), TANUKI.model_copy(update={"entries": moved}), "shikigami").verdict == Verdict.MERGE
     assert decide(marker_pr(head), TANUKI, "shikigami").verdict != Verdict.MERGE  # the request doesn't move it
+
+
+DSN = "https://0123456789abcdef0123456789abcdef@glitchtip.clockmost.com/7"
+# The block Shikigami's marker.with_glitchtip writes (the contract - its tests/test_glitchtip.py expects the same text).
+GLITCHTIP_BLOCK = (
+    "\n# Crash reports (D125): this app's GlitchTip project, which Shikigami made at onboarding.\n"
+    f"glitchtip:\n  dsn: {DSN}\n"
+)
+
+
+def with_dsn(dsn: str) -> dict[str, str]:
+    """The PR as Shikigami writes it with a DSN: owner, then the glitchtip block, then the secrets."""
+    values = PR["deploy/values.yaml"]
+    at = values.index("\n# Secrets from the request")
+    return {**PR, "deploy/values.yaml": values[:at] + GLITCHTIP_BLOCK.replace(DSN, dsn) + values[at:]}
+
+
+def test_a_marker_pr_with_our_glitchtip_dsn_is_merged():
+    decision = decide(marker_pr(with_dsn(DSN)), TANUKI, "shikigami")
+    assert decision.verdict == Verdict.MERGE, decision.reason
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "https://0123456789abcdef0123456789abcdef@glitchtip.evil.example/7",  # someone else's GlitchTip
+        "https://0123456789abcdef0123456789abcdef@glitchtip.clockmost.com.evil.example/7",
+        "http://0123456789abcdef0123456789abcdef@glitchtip.clockmost.com/7",  # not TLS
+        "https://not-a-key@glitchtip.clockmost.com/7",
+    ],
+)
+def test_a_dsn_that_isnt_ours_is_a_mismatch(dsn: str):
+    decision = decide(marker_pr(with_dsn(dsn)), TANUKI, "shikigami")
+    assert decision.verdict == Verdict.MISMATCH
+    assert "isn't one of ours" in decision.reason
+
+
+def test_the_glitchtip_block_is_shikigamis_text():
+    from xolotl.marker import with_glitchtip
+
+    assert with_glitchtip("name: echo\nowner: mario\n", DSN) == "name: echo\nowner: mario\n" + GLITCHTIP_BLOCK
+    assert with_glitchtip("glitchtip:\n  dsn: ''\n", DSN) == "glitchtip:\n  dsn: ''\n"  # the owner's own: kept

@@ -148,14 +148,27 @@ def _signing_key(t: Title, base: Mapping[str, str | None], head: Mapping[str, st
     }
 
 
-def _marker(app: str, base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
+def _new_dsn(head: Mapping[str, str | None]) -> str | None:
+    """The GlitchTip DSN the marker PR adds (D125), checked for shape and host.
+
+    Like the signing key: the one value Xolotl takes from the PR, because GlitchTip draws it.
+    """
+    dsn = marker.dsn_line(head.get("deploy/values.yaml"))
+    if dsn is not None and not marker.DSN.match(dsn):
+        raise _MismatchError(f"the PR's GlitchTip DSN isn't one of ours: {dsn!r}")
+    return dsn
+
+
+def _marker(
+    app: str, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
+) -> dict[str, str | None]:
     if base.get("deploy/meru.yaml") is not None:
         raise expected.BadLayoutError(f"{app} already has deploy/meru.yaml on main")
     if not request.owner:
         raise expected.BadLayoutError(f"{app}'s request names no owner")
     template = _required(base, "deploy/meru.yaml.in")
     return marker.marker_files(
-        template, base.get("deploy/values.yaml"), request.owner, request.secrets, request.entries
+        template, base.get("deploy/values.yaml"), request.owner, request.secrets, request.entries, _new_dsn(head)
     )
 
 
@@ -185,13 +198,13 @@ def _push_rule(t: Title, base: Mapping[str, str | None]) -> dict[str, str | None
 def rebuild(
     t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
 ) -> dict[str, str | None]:
-    """Each path and what it must hold after the PR (None = deleted), built from the base alone (+ the PR's key)."""
+    """Each path and what it must hold after the PR (None = deleted), from the base alone (+ the PR's key or DSN)."""
     if t.what == "fence":
         return _fence(t, base, request)
     if t.what == "signing key":
         return _signing_key(t, base, head)
     if t.what == "marker":
-        return _marker(t.app, base, request)
+        return _marker(t.app, base, head, request)
     if t.what == "stop":
         return _stop(base)
     if t.what == "park":
