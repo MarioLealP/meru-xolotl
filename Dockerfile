@@ -11,4 +11,4 @@ COPY src/ src/
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 USER 10001
 EXPOSE 8080
-CMD [".venv/bin/uvicorn", "--app-dir", "src", "xolotl.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD [".venv/bin/uvicorn", "--app-dir", "src", "xolotl.api.app:app", "--host", "0.0.0.0", "--port", "8080"]

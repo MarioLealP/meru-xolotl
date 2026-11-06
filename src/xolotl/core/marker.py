@@ -9,8 +9,8 @@ are the shared contract, byte for byte. Pure text work.
 
 import re
 
-from xolotl.expected import BadLayoutError
-from xolotl.retired import ENABLED_LINE
+from xolotl.core.expected import BadLayoutError
+from xolotl.core.retired import ENABLED_LINE
 
 SECRETS_COMMENT = (
     "# Secrets from the request (D99): Janus wrote the values to OpenBao apps/meru/<app>/eso/env when the app was"

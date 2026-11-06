@@ -16,7 +16,7 @@ import httpx2
 import jwt
 from pydantic import PrivateAttr, SecretStr
 
-from xolotl.models import Incoming, Service, Value
+from xolotl.models.base import Incoming, Service, Value
 
 Decision = Literal["approve", "deny"]
 # Usernames go into the request file as metadata.approvedBy - plain YAML scalars only, never anything to escape.

@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from xolotl.app_request import AppRequest, parse
-from xolotl.check import Decision, Proposal, Verdict, decide, parse_title, paths
+from xolotl.core.check import Decision, Proposal, Verdict, decide, parse_title, paths
+from xolotl.models.app_request import AppRequest, parse
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 GOLEM = AppRequest(name="golem", description="Test app - every onboarding step runs on it first", removed=False)
 GOLEM_REMOVED = AppRequest(name="golem", description=GOLEM.description, removed=True)
 XOLOTL = parse((FIXTURES / "request-xolotl.yaml").read_text())

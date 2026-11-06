@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, StringConstraints
 
-from xolotl.models import Incoming, Value
+from xolotl.models.base import Incoming, Value
 
 
 class AppRequest(Value):

@@ -14,11 +14,11 @@ import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 
-from xolotl.approval import Keys, OidcClient
-from xolotl.approve import Approvals, Ask, Done, FailedError
+from xolotl.approve.approval import Keys, OidcClient
+from xolotl.approve.approve import Approvals, Ask, Done, FailedError
+from xolotl.clients.gitea import Gitea
 from xolotl.config import Settings
-from xolotl.gitea import Gitea
-from xolotl.sweep import Sweeper
+from xolotl.sweep.sweep import Sweeper
 
 log = logging.getLogger("xolotl")
 APPROVE_ERRORS: dict[int | str, dict[str, str]] = {
