@@ -30,3 +30,7 @@ externalSecrets:
 networkPolicy:
   enabled: true
   fromNamespaces: [janus, shikigami]
+
+# Crash reports (D125): this app's GlitchTip project, which Shikigami made (it predates the marker's own DSN line).
+glitchtip:
+  dsn: https://87151d2f131845fc8c465249dec674e8@glitchtip.clockmost.com/3
