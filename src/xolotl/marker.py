@@ -16,6 +16,12 @@ SECRETS_COMMENT = (
     "# Secrets from the request (D99): Janus wrote the values to OpenBao apps/meru/<app>/eso/env when the app was"
     " requested."
 )
+GLITCHTIP_COMMENT = "# Crash reports (D125): this app's GlitchTip project, which Shikigami made at onboarding."
+# The DSN Shikigami adds is the one value Xolotl can't rebuild (GlitchTip draws it): it must have GlitchTip's shape and
+# point at our GlitchTip, so a marker PR can't send an app's crash reports anywhere else.
+DSN = re.compile(r"^https://[0-9a-f]{32}@glitchtip\.clockmost\.com/[0-9]+$")
+_DSN_LINE = re.compile(r"^glitchtip:\n  dsn: ([^\n]*)$", re.MULTILINE)
+_GLITCHTIP_SET = re.compile(r"^glitchtip:", re.MULTILINE)
 _EMPTY_OWNER = re.compile(r'^owner: ""(?:[ \t]*#[^\n]*)?$', re.MULTILINE)
 _SET_KEYS = re.compile(r"^(?:externalSecrets|secretEnv):", re.MULTILINE)
 _NAME = re.compile(r"^[a-z]([-a-z0-9]{0,28}[a-z0-9])?$")
@@ -40,6 +46,20 @@ def env_var(name: str) -> str:
     if not _NAME.match(name):  # the request was validated, but this decides an env var: check again
         raise BadLayoutError(f"secret name {name!r} isn't a request name")
     return name.upper().replace("-", "_")
+
+
+def dsn_line(values: str | None) -> str | None:
+    """The DSN a values.yaml's `glitchtip:` block names, unchecked; None without one."""
+    found = _DSN_LINE.search(values or "")
+    return found.group(1) if found else None
+
+
+def with_glitchtip(text: str, dsn: str | None) -> str:
+    """values.yaml with the app's GlitchTip DSN appended (D125); kept when there's none or the file sets glitchtip."""
+    if dsn is None or _GLITCHTIP_SET.search(text):
+        return text
+    block = "\n".join(["", GLITCHTIP_COMMENT, "glitchtip:", f"  dsn: {dsn}"]) + "\n"
+    return text + ("" if text.endswith("\n") else "\n") + block
 
 
 def wired(text: str, secrets: tuple[str, ...], entries: tuple[tuple[str, str], ...] = ()) -> str:
@@ -72,8 +92,9 @@ def marker_files(
     owner: str,
     secrets: tuple[str, ...],
     entries: tuple[tuple[str, str], ...] = (),
+    dsn: str | None = None,
 ) -> dict[str, str | None]:
-    """Each path and what it must hold after the marker PR (None = deleted)."""
+    """Each path and what it must hold after the marker PR (None = deleted). `dsn`: the PR's, already checked."""
     want: dict[str, str | None] = {
         "deploy/meru.yaml": owned(template, owner, "deploy/meru.yaml.in"),
         "deploy/meru.yaml.in": None,
@@ -84,5 +105,5 @@ def marker_files(
         return want
     text = _STOPPED.sub("", values, count=1)  # a restore (D106): the retire stop's exact line goes
     text = owned(text, owner, "deploy/values.yaml") if owner_unset(text) else text
-    want["deploy/values.yaml"] = wired(text, secrets, entries)
+    want["deploy/values.yaml"] = wired(with_glitchtip(text, dsn), secrets, entries)
     return want
