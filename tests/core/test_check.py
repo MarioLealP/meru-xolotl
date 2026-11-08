@@ -88,6 +88,19 @@ def test_each_environment_trusting_the_apps_key_is_merged():
     )
 
 
+def test_retiring_takes_every_environments_key_with_the_apps():
+    # the base: golem's real retire PR, its keys file with golem-uat and golem-prod added (same key, as onboarding
+    # writes them); Shikigami's trust.without_key over golem, golem-uat and golem-prod gives exactly the PR's real head
+    pr = real_pr("kyverno-9")
+    keys = (FIXTURES / "kyverno-signing-keys-golem-environments.yaml").read_text()
+    with_envs = real_pr("kyverno-9", base={**pr.base, "keys/meru-signing-keys.yaml": keys})
+    golem_envs = GOLEM_REMOVED.model_copy(update={"environments": ("uat", "prod")})
+    assert verdict(with_envs, golem_envs).verdict == Verdict.MERGE
+    assert verdict(with_envs, GOLEM_REMOVED).verdict == Verdict.MISMATCH  # removes keys the request doesn't explain
+    left = real_pr("kyverno-9", base=with_envs.base, head={**pr.head, "keys/meru-signing-keys.yaml": keys})
+    assert verdict(left, golem_envs).verdict == Verdict.MISMATCH  # an environment's key left behind
+
+
 def test_a_persons_pr_is_left_alone():
     assert verdict(real_pr("meru-25", author="MarioGLealP"), XOLOTL).verdict == Verdict.NOT_OURS
 

@@ -16,6 +16,10 @@ from xolotl.core.check import Decision, Proposal, Verdict, decide, parse_title, 
 from xolotl.models import app_request
 from xolotl.models.base import Service, Value
 
+# D126: an app repo's files under an environment called prod - Shikigami protects them in Gitea at the lock-out, so a
+# merge there needs a repo admin's override (Mario). Xolotl checks such a PR and says so instead of trying.
+PROD_FILES = "deploy/envs/prod/"
+
 log = logging.getLogger(__name__)
 
 
@@ -84,7 +88,7 @@ class Sweeper(Service):
                 decision, request_at = await self._decide(repo, pr)
                 log.info("%s %r: %s - %s", where, pr.title, decision.verdict, decision.reason)
                 if decision.verdict == Verdict.MERGE:
-                    if await self._merge(repo, pr, decision, request_at):
+                    if await self._merge_app_pr(repo, pr, decision, request_at):
                         merged.append(where)
                     else:
                         waiting.append(where)
@@ -160,9 +164,6 @@ class Sweeper(Service):
     async def _decide(self, repo: str, pr: PullRequest) -> tuple[Decision, str | None]:
         t = parse_title(pr.title)
         changed = await self.gitea.changed_files(repo, pr.number)
-        wanted = paths(t.app, t.what) if t else ()
-        base = {path: await self.gitea.file(repo, path, pr.base) for path in wanted}
-        head = {path: await self.gitea.file(repo, path, pr.head) for path in wanted}
         request, request_at = None, None
         if t is not None and self.gitea.can_write:
             request_at = await self.gitea.branch_head(self.requests_repo, private=True)
@@ -172,10 +173,28 @@ class Sweeper(Service):
                     request = app_request.parse(text)
                 except ValueError as e:
                     log.warning("Meru/%s apps/%s.yaml: %s", self.requests_repo, t.app, e)
+        wanted = paths(t.app, t.what, request.environments if request else ()) if t else ()
+        base = {path: await self.gitea.file(repo, path, pr.base) for path in wanted}
+        head = {path: await self.gitea.file(repo, path, pr.head) for path in wanted}
         proposal = Proposal(
             repo=repo, number=pr.number, title=pr.title, author=pr.author, changed=changed, base=base, head=head
         )
         return decide(proposal, request, self.shikigami), request_at
+
+    async def _merge_app_pr(self, repo: str, pr: PullRequest, decision: Decision, request_at: str | None) -> bool:
+        """Merge a checked PR of Shikigami's - unless it changes prod: then say it's checked and leave it to Mario."""
+        if prod := await self._prod_files(repo, pr):  # D126: Gitea refuses Xolotl there - only Mario's override passes
+            await self._say_once(
+                repo, pr, f"Checked: {decision.reason}. It changes prod ({', '.join(prod)}) - Mario merges it."
+            )
+            return False
+        return await self._merge(repo, pr, decision, request_at)
+
+    async def _prod_files(self, repo: str, pr: PullRequest) -> list[str]:
+        """The PR's files under an environment called prod (D126) - Gitea's protected files in an app repo."""
+        if repo in self.repos:
+            return []
+        return sorted(p for p in await self.gitea.changed_files(repo, pr.number) if p.startswith(PROD_FILES))
 
     async def _merge(self, repo: str, pr: PullRequest, decision: Decision, request_at: str | None) -> bool:
         if not self.gitea.can_write:

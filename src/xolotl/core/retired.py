@@ -50,9 +50,14 @@ def _has_line(text: str, pattern: str) -> bool:
     return any(re.match(pattern, line) for line in text.splitlines())
 
 
+def is_disabled(values: str) -> bool:
+    """Whether a values file carries top-level `enabled: false`."""
+    return _has_line(values, r"enabled: false\b")
+
+
 def is_stopped(values: str, marker: str) -> bool:
     """Whether both files carry the stop: top-level `enabled: false` and `build: false`."""
-    return _has_line(values, r"enabled: false\b") and _has_line(marker, r"build: false\b")
+    return is_disabled(values) and _has_line(marker, r"build: false\b")
 
 
 def parked(marker: str) -> str:
