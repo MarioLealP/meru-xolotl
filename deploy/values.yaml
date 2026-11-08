@@ -7,8 +7,8 @@ name: xolotl
 owner: mario
 image:
   repository: zot.clockmost.com/meru/xolotl
-  digest: sha256:e897b0a760da9d00d3305e0832008fc20a67de871c39f452e7a79a55e9025ae4
-  tag: "9f5cd6681268"
+  digest: sha256:46180b66e15308d25c491df0d747ceba6c986486b77f52932e4836a4c5f48c5f
+  tag: "29995593650f"
 # Its Gitea bot's token (meru-xolotl-identities.sh -> apps/meru/xolotl/eso/gitea): merging and commenting on trust
 # PRs, reading Meru/requests. Without it Xolotl only checks and logs.
 # And the xolotl-approvals app's client secret (meru-oidc-secret.sh -> apps/meru/xolotl/eso/approvals-oidc): redeeming
