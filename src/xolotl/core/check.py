@@ -34,16 +34,28 @@ def repo_of(app: str, what: str) -> str:
     return REPO.get(what, app)
 
 
-def paths(app: str, what: str) -> tuple[str, ...]:
-    """The files a PR of this kind may touch or the check reads - the only ones the sweep fetches."""
-    return {
-        "fence": ("kustomization.yaml", f"projects/{app}.yaml"),
-        "signing key": ("kustomization.yaml", "keys/meru-signing-keys.yaml", f"exceptions/{app}-build.yaml"),
-        "push rule": ("config.json",),
-        "stop": ("deploy/values.yaml", "deploy/meru.yaml"),
-        "park": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),  # values: read, never changed
-        "marker": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),
-    }[what]
+def env_values(environments: tuple[str, ...]) -> tuple[str, ...]:
+    """Each environment's values file (D126): the stop turns them off with the app's own, the park reads them."""
+    return tuple(f"deploy/envs/{env}/values.yaml" for env in environments)
+
+
+def paths(app: str, what: str, environments: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """The files a PR of this kind may touch or the check reads - the only ones the sweep fetches.
+
+    `environments`: the request's (D126), for the stop and the park.
+    """
+    envs = env_values(environments) if what in ("stop", "park") else ()
+    return (
+        envs
+        + {
+            "fence": ("kustomization.yaml", f"projects/{app}.yaml"),
+            "signing key": ("kustomization.yaml", "keys/meru-signing-keys.yaml", f"exceptions/{app}-build.yaml"),
+            "push rule": ("config.json",),
+            "stop": ("deploy/values.yaml", "deploy/meru.yaml"),
+            "park": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),  # values: read, never changed
+            "marker": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),
+        }[what]
+    )
 
 
 class Title(Value):
@@ -131,6 +143,11 @@ def _fence(t: Title, base: Mapping[str, str | None], request: AppRequest) -> dic
     return {"kustomization.yaml": expected.without_line(kustomization, path), path: None}
 
 
+def _names(app: str, request: AppRequest) -> tuple[str, ...]:
+    """The namespaces that trust the app's key: its own and each environment's (D126)."""
+    return (app, *(f"{app}-{env}" for env in request.environments))
+
+
 def _signing_key(
     t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
 ) -> dict[str, str | None]:
@@ -139,16 +156,18 @@ def _signing_key(
     path = f"exceptions/{app}-build.yaml"
     if t.direction == "onboard":
         key = _new_key(head, app)
-        for name in (app, *(f"{app}-{env}" for env in request.environments)):  # D126: one key, every environment
+        for name in _names(app, request):  # D126: one key, every environment
             keys = expected.with_key(keys, name, key)
         return {
             "kustomization.yaml": expected.with_line(kustomization, "exceptions", path),
             "keys/meru-signing-keys.yaml": keys,
             path: expected.build_exception(app),
         }
+    for name in _names(app, request):  # every one of the app's keys goes, nobody else's
+        keys = expected.without_key(keys, name)
     return {
         "kustomization.yaml": expected.without_line(kustomization, path),
-        "keys/meru-signing-keys.yaml": expected.without_key(keys, app),
+        "keys/meru-signing-keys.yaml": keys,
         path: None,
     }
 
@@ -177,18 +196,23 @@ def _marker(
     )
 
 
-def _stop(base: Mapping[str, str | None]) -> dict[str, str | None]:
+def _stop(base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
     values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
+    envs = {path: retired.stopped_values(text) for path in env_values(request.environments) if (text := base.get(path))}
     return {
         "deploy/values.yaml": retired.stopped_values(values),
         "deploy/meru.yaml": retired.stopped_marker(deployed),
+        **envs,  # D126: an environment without its values file deploys nothing - nothing to stop
     }
 
 
-def _park(app: str, base: Mapping[str, str | None]) -> dict[str, str | None]:
+def _park(app: str, base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
     values, deployed = _required(base, "deploy/values.yaml"), _required(base, "deploy/meru.yaml")
     if not retired.is_stopped(values, deployed):  # parked before the stop, Argo would drop an app that still runs
         raise expected.BadLayoutError(f"{app} isn't stopped on main yet - the park waits for the stop")
+    for path in env_values(request.environments):  # parking drops the environments' Applications too (meru-envs)
+        if (text := base.get(path)) is not None and not retired.is_disabled(text):
+            raise expected.BadLayoutError(f"{path} isn't stopped on main yet - the park waits for the stop")
     return {"deploy/meru.yaml.in": retired.parked(deployed), "deploy/meru.yaml": None}
 
 
@@ -211,9 +235,9 @@ def rebuild(
     if t.what == "marker":
         return _marker(t.app, base, head, request)
     if t.what == "stop":
-        return _stop(base)
+        return _stop(base, request)
     if t.what == "park":
-        return _park(t.app, base)
+        return _park(t.app, base, request)
     return _push_rule(t, base)
 
 

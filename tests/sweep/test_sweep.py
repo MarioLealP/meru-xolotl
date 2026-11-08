@@ -6,7 +6,8 @@ import httpx2
 import pytest
 from pydantic import SecretStr
 
-from xolotl.clients.gitea import Gitea
+from xolotl.clients.gitea import Gitea, PullRequest
+from xolotl.core.check import Decision, Verdict
 from xolotl.sweep.sweep import Sweeper
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -278,3 +279,24 @@ async def test_a_persons_request_pr_is_not_touched_by_the_purge_pass():
     outcome = await sweeper(fake).sweep()
     assert (outcome.merged, outcome.refused, outcome.waiting) == ([], [], [])
     assert fake.merges == fake.comments == []
+
+
+async def test_a_checked_pr_that_changes_prod_is_left_to_mario():
+    # D126: Gitea protects deploy/envs/prod/** in app repos (Shikigami's lock-out) - Xolotl's merge would be refused
+    fake = FakeGitea()
+    fake.meta["changed"] = ["deploy/meru.yaml", "deploy/values.yaml", "deploy/envs/prod/values.yaml"]
+    pr = PullRequest(
+        number=25, title="chore(retire): stop golem", author="shikigami", base="b", head="h", mergeable=True
+    )
+    checked = Decision(verdict=Verdict.MERGE, reason="every file matches the rebuild")
+    sw = sweeper(fake)
+    assert not await sw._merge_app_pr("golem", pr, checked, "r1")
+    assert fake.merges == []
+    [comment] = fake.comments  # said once per head
+    assert comment.startswith(
+        "Checked: every file matches the rebuild. It changes prod (deploy/envs/prod/values.yaml) - Mario merges it."
+    )
+    fake.meta["changed"] = ["deploy/meru.yaml", "deploy/values.yaml", "deploy/envs/uat/values.yaml"]
+    assert await sw._merge_app_pr("golem", pr, checked, "r1")  # uat is the owner's: merged as any other
+    fake.meta["changed"] = ["deploy/envs/prod/x"]
+    assert await sw._merge_app_pr("meru", pr, checked, "r1")  # a trust repo has no environments

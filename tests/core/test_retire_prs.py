@@ -13,6 +13,9 @@ BASE = {p: (F / "base" / p).read_text() for p in ("deploy/values.yaml", "deploy/
 STOPPED = {**BASE, **{p: (F / "stop" / p).read_text() for p in ("deploy/values.yaml", "deploy/meru.yaml")}}
 PARKED_MARKER = (F / "park" / "deploy/meru.yaml.in").read_text()
 REMOVED = AppRequest(name="homunculus", description="Test app", removed=True)
+PROD = "deploy/envs/prod/values.yaml"  # D126; the stopped one is Shikigami's retire.stopped_values on the base
+PROD_BASE, PROD_STOPPED = (F / "base" / PROD).read_text(), (F / "stop" / PROD).read_text()
+REMOVED_ENVS = REMOVED.model_copy(update={"environments": ("uat", "prod")})
 LIVE = AppRequest(name="homunculus", description="Test app", removed=False)
 
 
@@ -85,3 +88,31 @@ def test_a_stop_touching_the_code_is_a_mismatch():
     decision = decide(stop_pr(changed=changed), REMOVED, "shikigami")
     assert decision.verdict == Verdict.MISMATCH
     assert "src/app.py" in decision.reason
+
+
+def env_files(on: dict[str, str], what: str) -> dict[str, str | None]:
+    return {path: on.get(path) for path in paths("homunculus", what, ("uat", "prod"))}
+
+
+def test_a_stop_turns_each_environment_off_with_the_app():
+    base, head = {**BASE, PROD: PROD_BASE}, {**STOPPED, PROD: PROD_STOPPED}  # no uat values: nothing to stop there
+    pr = stop_pr(
+        changed=frozenset({"deploy/values.yaml", "deploy/meru.yaml", PROD}),
+        base=env_files(base, "stop"),
+        head=env_files(head, "stop"),
+    )
+    assert decide(pr, REMOVED_ENVS, "shikigami").verdict == Verdict.MERGE
+    assert decide(pr, REMOVED, "shikigami").verdict == Verdict.MISMATCH  # prod isn't in the request
+    left_on = stop_pr(base=env_files(base, "stop"), head=env_files({**head, PROD: PROD_BASE}, "stop"))
+    assert decide(left_on, REMOVED_ENVS, "shikigami").verdict == Verdict.MISMATCH  # prod still running
+
+
+def test_a_park_waits_for_every_environment_to_stop():
+    head = {**STOPPED, "deploy/meru.yaml.in": PARKED_MARKER}
+    del head["deploy/meru.yaml"]
+    running = park_pr(base=env_files({**STOPPED, PROD: PROD_BASE}, "park"), head=env_files(head, "park"))
+    decision = decide(running, REMOVED_ENVS, "shikigami")
+    assert decision.verdict == Verdict.WAIT
+    assert PROD in decision.reason
+    stopped = park_pr(base=env_files({**STOPPED, PROD: PROD_STOPPED}, "park"), head=env_files(head, "park"))
+    assert decide(stopped, REMOVED_ENVS, "shikigami").verdict == Verdict.MERGE

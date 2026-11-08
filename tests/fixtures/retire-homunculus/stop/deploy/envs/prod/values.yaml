@@ -1,0 +1,5 @@
+# prod: the digest promoted from uat (D126)
+owner: mario
+enabled: false # retired (D85): no workload until Charon purges the namespace
+image:
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

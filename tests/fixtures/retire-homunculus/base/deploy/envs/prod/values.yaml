@@ -1,0 +1,4 @@
+# prod: the digest promoted from uat (D126)
+owner: mario
+image:
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
