@@ -1,0 +1,39 @@
+# Which signing key each Meru app's images must carry (D59, signatures A): namespace -> the app's cosign public key.
+# The rule signatures/meru-signed.yaml looks the key up by the pod's namespace. Adding an app's line here = trusting
+# its builds; the private half lives in OpenBao (apps/meru/<app>-build/build), where only that app's builds read it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meru-signing-keys
+  namespace: kyverno
+data:
+  echo: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE3JIzuSr7VWhztGxFgHr97iUVES7
+    2GDxs9m4k8jfv93MWMuSTTyb1LoVqPcmGFkz5nWgp/kd5iobwCInowvShA==
+    -----END PUBLIC KEY-----
+  thoth: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEx/jMfuZf4fRgMBI5zpcwerNG3Zxy
+    EfUyHkqINyPHaujmxGZvf8Dq99HSxPCN3vxLhPuUgNWlvpEbJyMo9gOaiw==
+    -----END PUBLIC KEY-----
+  shikigami: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6Q5Qq9vI+b5QuBEuVXVmiFunE+Vk
+    ci5NWufGXlKRnuhh9JbcVgIOqXtMzGMC2bbUm1H4ijrSNVWEc3lzMvO+nA==
+    -----END PUBLIC KEY-----
+  xolotl: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/SE5+AApGugeJGuzNOy3nbnMF8va
+    VhhTcRZ0znu1yX8AQeEKhfVk3vcSsSlAe1aJNUoxJCz9TzQmV4U1qJ/I0w==
+    -----END PUBLIC KEY-----
+  xolotl-uat: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/SE5+AApGugeJGuzNOy3nbnMF8va
+    VhhTcRZ0znu1yX8AQeEKhfVk3vcSsSlAe1aJNUoxJCz9TzQmV4U1qJ/I0w==
+    -----END PUBLIC KEY-----
+  xolotl-prod: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/SE5+AApGugeJGuzNOy3nbnMF8va
+    VhhTcRZ0znu1yX8AQeEKhfVk3vcSsSlAe1aJNUoxJCz9TzQmV4U1qJ/I0w==
+    -----END PUBLIC KEY-----

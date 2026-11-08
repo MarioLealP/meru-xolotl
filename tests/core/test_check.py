@@ -60,6 +60,34 @@ def test_every_real_trust_pr_shikigami_opened_is_merged(pr: str, request_: AppRe
     assert decision.verdict == Verdict.MERGE, decision.reason
 
 
+XOLOTL_ENVS = XOLOTL.model_copy(update={"environments": ("uat", "prod")})
+
+
+def test_a_fence_with_environments_as_shikigami_writes_it_is_merged():
+    # tests/fixtures/meru-xolotl-fence-environments.yaml is Shikigami's trust.fence("xolotl", ..., ["uat", "prod"])
+    pr = real_pr("meru-25")
+    fence = (FIXTURES / "meru-xolotl-fence-environments.yaml").read_text()
+    with_envs = real_pr("meru-25", head={**pr.head, "projects/xolotl.yaml": fence})
+    assert verdict(with_envs, XOLOTL_ENVS).verdict == Verdict.MERGE
+    assert verdict(with_envs, XOLOTL).verdict == Verdict.MISMATCH  # environments the request doesn't have
+    assert verdict(pr, XOLOTL_ENVS).verdict == Verdict.MISMATCH  # the request's environments left out
+
+
+def test_each_environment_trusting_the_apps_key_is_merged():
+    # tests/fixtures/kyverno-signing-keys-xolotl-environments.yaml is Shikigami's trust.with_keys on the PR's base
+    pr = real_pr("kyverno-10")
+    keys = (FIXTURES / "kyverno-signing-keys-xolotl-environments.yaml").read_text()
+    with_envs = real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": keys})
+    assert verdict(with_envs, XOLOTL_ENVS).verdict == Verdict.MERGE
+    assert verdict(with_envs, XOLOTL).verdict == Verdict.MISMATCH
+    assert verdict(pr, XOLOTL_ENVS).verdict == Verdict.MISMATCH
+    other = keys.replace("  xolotl-prod: |\n", "  thoth-prod: |\n")  # an environment line under another name
+    assert (
+        verdict(real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": other}), XOLOTL_ENVS).verdict
+        == Verdict.MISMATCH
+    )
+
+
 def test_a_persons_pr_is_left_alone():
     assert verdict(real_pr("meru-25", author="MarioGLealP"), XOLOTL).verdict == Verdict.NOT_OURS
 
@@ -154,3 +182,16 @@ def test_the_request_fixtures_parse():
     assert (XOLOTL.name, XOLOTL.removed) == ("xolotl", False)
     with pytest.raises(ValidationError):
         parse("kind: Database\n")
+
+
+def test_a_request_with_environments_reads_their_names_in_order():
+    text = (FIXTURES / "request-xolotl.yaml").read_text() + "  environments: [{name: uat}, {name: prod, route: {}}]\n"
+    assert parse(text).environments == ("uat", "prod")
+    assert parse((FIXTURES / "request-xolotl.yaml").read_text()).environments == ()
+
+
+@pytest.mark.parametrize("name", ["Prod", "production", "u-at", "", "1uat"])
+def test_an_environment_name_that_cant_be_a_namespace_suffix_is_refused(name: str):
+    text = (FIXTURES / "request-xolotl.yaml").read_text() + f"  environments: [{{name: '{name}'}}]\n"
+    with pytest.raises(ValidationError):
+        parse(text)

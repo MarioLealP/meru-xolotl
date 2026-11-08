@@ -23,6 +23,7 @@ class AppRequest(Value):
     entries: tuple[tuple[str, str], ...] = ()  # (name, OpenBao entry) for the names not in env (D123)
     removed_at: datetime | None = None  # Xolotl's own stamp (D105), UTC; Charon's retention counts from it
     retention: timedelta = timedelta(days=30)
+    environments: tuple[str, ...] = ()  # D126: each widens the fence and trusts the app's key in <app>-<env>
 
 
 Days = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,3}d$")]
@@ -40,12 +41,18 @@ class _Secret(Incoming):
     entry: Entry = "env"
 
 
+class _Environment(Incoming):
+    # becomes a namespace <app>-<name> in the trust files: checked here too, not taken on Shikigami's word
+    name: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]{0,7}$")]
+
+
 class _Spec(Incoming):
     description: str
     owner: str = ""
     secrets: list[_Secret] = Field(default_factory=list)
     removed: bool = False
     retention: Days = "30d"  # the same default as the request format
+    environments: list[_Environment] = Field(default_factory=list)
 
 
 class _Document(Incoming):
@@ -75,4 +82,5 @@ def parse(text: str) -> AppRequest:
         entries=tuple((s.name, s.entry) for s in doc.spec.secrets if s.entry != "env"),
         removed_at=removed_at,
         retention=timedelta(days=int(doc.spec.retention.removesuffix("d"))),
+        environments=tuple(env.name for env in doc.spec.environments),
     )
