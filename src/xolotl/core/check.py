@@ -126,19 +126,24 @@ def _fence(t: Title, base: Mapping[str, str | None], request: AppRequest) -> dic
     if t.direction == "onboard":
         return {
             "kustomization.yaml": expected.with_line(kustomization, "projects", path),
-            path: expected.fence(app, request.description),
+            path: expected.fence(app, request.description, request.environments),
         }
     return {"kustomization.yaml": expected.without_line(kustomization, path), path: None}
 
 
-def _signing_key(t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None]) -> dict[str, str | None]:
+def _signing_key(
+    t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
+) -> dict[str, str | None]:
     app = t.app
     kustomization, keys = _required(base, "kustomization.yaml"), _required(base, "keys/meru-signing-keys.yaml")
     path = f"exceptions/{app}-build.yaml"
     if t.direction == "onboard":
+        key = _new_key(head, app)
+        for name in (app, *(f"{app}-{env}" for env in request.environments)):  # D126: one key, every environment
+            keys = expected.with_key(keys, name, key)
         return {
             "kustomization.yaml": expected.with_line(kustomization, "exceptions", path),
-            "keys/meru-signing-keys.yaml": expected.with_key(keys, app, _new_key(head, app)),
+            "keys/meru-signing-keys.yaml": keys,
             path: expected.build_exception(app),
         }
     return {
@@ -202,7 +207,7 @@ def rebuild(
     if t.what == "fence":
         return _fence(t, base, request)
     if t.what == "signing key":
-        return _signing_key(t, base, head)
+        return _signing_key(t, base, head, request)
     if t.what == "marker":
         return _marker(t.app, base, head, request)
     if t.what == "stop":

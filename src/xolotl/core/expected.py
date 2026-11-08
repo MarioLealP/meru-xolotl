@@ -22,10 +22,18 @@ def title(app: str) -> str:
     return app[:1].upper() + app[1:]
 
 
-def fence(app: str, description: str) -> str:
-    """Meru/meru projects/<app>.yaml."""
+def fence(app: str, description: str, environments: tuple[str, ...] = ()) -> str:
+    """Meru/meru projects/<app>.yaml; each environment (D126) adds namespace <app>-<env> after the build's."""
+    names = [app, f"{app}-build"] + [f"{app}-{env}" for env in environments]
+    destinations = "".join(f"    - server: https://kubernetes.default.svc\n      namespace: {n}\n" for n in names)
+    namespace_kinds = "".join(f'    - {{ group: "", kind: Namespace, name: {n} }}\n' for n in names)
+    scope = (
+        "into exactly its namespaces - the app's, its build's and its environments' (D126) -"
+        if environments
+        else "into exactly its two namespaces,"
+    )
     return f"""# {title(app)}'s fence: where its Application may read from and deploy to - its own repo plus the
-# Nüwa and Sindri charts, into exactly its two namespaces, which it may also create. Written by Shikigami (D82).
+# Nüwa and Sindri charts, {scope} which it may also create. Written by Shikigami (D82).
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -38,14 +46,8 @@ spec:
     - https://git.clockmost.com/Meru/nuwa.git
     - https://git.clockmost.com/Meru/sindri.git
   destinations:
-    - server: https://kubernetes.default.svc
-      namespace: {app}
-    - server: https://kubernetes.default.svc
-      namespace: {app}-build
-  clusterResourceWhitelist:
-    - {{ group: "", kind: Namespace, name: {app} }}
-    - {{ group: "", kind: Namespace, name: {app}-build }}
-"""
+{destinations}  clusterResourceWhitelist:
+{namespace_kinds}"""
 
 
 def build_exception(app: str) -> str:
