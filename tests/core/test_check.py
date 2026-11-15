@@ -44,13 +44,10 @@ def verdict(pr: Proposal, request: AppRequest | None) -> Decision:
     ("pr", "request_"),
     [
         ("meru-21", GOLEM),
-        ("kyverno-8", GOLEM),
         ("zot-4", GOLEM),
         ("meru-23", GOLEM_REMOVED),
-        ("kyverno-9", GOLEM_REMOVED),
         ("zot-5", GOLEM_REMOVED),
         ("meru-25", XOLOTL),
-        ("kyverno-10", XOLOTL),
         ("zot-6", XOLOTL),
     ],
 )
@@ -73,32 +70,16 @@ def test_a_fence_with_environments_as_shikigami_writes_it_is_merged():
     assert verdict(pr, XOLOTL_ENVS).verdict == Verdict.MISMATCH  # the request's environments left out
 
 
-def test_each_environment_trusting_the_apps_key_is_merged():
-    # tests/fixtures/kyverno-signing-keys-xolotl-environments.yaml is Shikigami's trust.with_keys on the PR's base
-    pr = real_pr("kyverno-10")
-    keys = (FIXTURES / "kyverno-signing-keys-xolotl-environments.yaml").read_text()
-    with_envs = real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": keys})
-    assert verdict(with_envs, XOLOTL_ENVS).verdict == Verdict.MERGE
-    assert verdict(with_envs, XOLOTL).verdict == Verdict.MISMATCH
-    assert verdict(pr, XOLOTL_ENVS).verdict == Verdict.MISMATCH
-    other = keys.replace("  xolotl-prod: |\n", "  thoth-prod: |\n")  # an environment line under another name
-    assert (
-        verdict(real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": other}), XOLOTL_ENVS).verdict
-        == Verdict.MISMATCH
-    )
-
-
-def test_retiring_takes_every_environments_key_with_the_apps():
-    # the base: golem's real retire PR, its keys file with golem-uat and golem-prod added (same key, as onboarding
-    # writes them); Shikigami's trust.without_key over golem, golem-uat and golem-prod gives exactly the PR's real head
-    pr = real_pr("kyverno-9")
-    keys = (FIXTURES / "kyverno-signing-keys-golem-environments.yaml").read_text()
-    with_envs = real_pr("kyverno-9", base={**pr.base, "keys/meru-signing-keys.yaml": keys})
-    golem_envs = GOLEM_REMOVED.model_copy(update={"environments": ("uat", "prod")})
-    assert verdict(with_envs, golem_envs).verdict == Verdict.MERGE
-    assert verdict(with_envs, GOLEM_REMOVED).verdict == Verdict.MISMATCH  # removes keys the request doesn't explain
-    left = real_pr("kyverno-9", base=with_envs.base, head={**pr.head, "keys/meru-signing-keys.yaml": keys})
-    assert verdict(left, golem_envs).verdict == Verdict.MISMATCH  # an environment's key left behind
+@pytest.mark.parametrize(
+    "title",
+    [
+        "chore(trust): onboard golem - signing key",  # Shikigami's real Meru/kyverno#8, #9, #10 (before 2026-11-15)
+        "chore(trust): retire golem - signing key",
+        "chore(trust): onboard xolotl - signing key",
+    ],
+)
+def test_a_signing_key_pr_is_no_longer_shikigamis_since_kyverno_went(title: str):
+    assert parse_title(title) is None
 
 
 def test_a_persons_pr_is_left_alone():
@@ -122,37 +103,6 @@ def test_touching_another_file_is_a_mismatch():
     decision = verdict(pr, XOLOTL)
     assert decision.verdict == Verdict.MISMATCH
     assert "projects/echo.yaml" in decision.reason
-
-
-def test_a_key_under_another_apps_name_is_a_mismatch():
-    pr = real_pr("kyverno-10")
-    keys = pr.head["keys/meru-signing-keys.yaml"]
-    assert keys is not None
-    swapped = keys.replace("  xolotl: |\n", "  echo2: |\n")
-    decision = verdict(real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": swapped}), XOLOTL)
-    assert decision.verdict == Verdict.MISMATCH
-
-
-def test_a_key_that_isnt_a_p256_public_key_is_a_mismatch():
-    pr = real_pr("kyverno-10")
-    keys = pr.head["keys/meru-signing-keys.yaml"]
-    assert keys is not None
-    bogus = keys.replace("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/SE5", "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAA/SE5")
-    decision = verdict(real_pr("kyverno-10", head={**pr.head, "keys/meru-signing-keys.yaml": bogus}), XOLOTL)
-    assert decision.verdict == Verdict.MISMATCH
-    assert "P-256" in decision.reason
-
-
-def test_a_retire_that_also_drops_another_apps_key_is_a_mismatch():
-    pr = real_pr("kyverno-9")
-    keys = pr.head["keys/meru-signing-keys.yaml"]
-    assert keys is not None
-    start = keys.index("  echo: |\n")
-    end = keys.index("  thoth: |\n")
-    decision = verdict(
-        real_pr("kyverno-9", head={**pr.head, "keys/meru-signing-keys.yaml": keys[:start] + keys[end:]}), GOLEM_REMOVED
-    )
-    assert decision.verdict == Verdict.MISMATCH
 
 
 def test_a_push_rule_for_more_users_is_a_mismatch():

@@ -1,6 +1,6 @@
 """The verdict on one of Shikigami's PRs (D87).
 
-That is a trust PR in Meru/meru|kyverno|zot, or in an app's own repo its marker (D99) or its stop or park (cm-konk).
+That is a trust PR in Meru/meru|zot, or in an app's own repo its marker (D99) or its stop or park (cm-konk).
 Rebuild the files it should contain from the PR's own base commit and the app's request, and merge only an exact match.
 Pure: the sweep fetches the PR, its files and the request, this decides.
 
@@ -20,13 +20,13 @@ from xolotl.models.app_request import AppRequest
 from xolotl.models.base import Value
 
 APP = r"([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)"
-# Shikigami's PR titles (Conventional Commits). Trust, in Meru/meru|kyverno|zot: chore(trust): onboard <app> - fence.
+# Shikigami's PR titles (Conventional Commits). Trust, in Meru/meru|zot: chore(trust): onboard <app> - fence.
 # Retire, in the app's own repo (cm-konk): chore(retire): stop <app>, then chore(retire): park <app>.
-TITLE = re.compile(rf"^chore\(trust\): (onboard|retire) {APP} - (fence|signing key|push rule)$")
+TITLE = re.compile(rf"^chore\(trust\): (onboard|retire) {APP} - (fence|push rule)$")
 RETIRE_TITLE = re.compile(rf"^chore\(retire\): (stop|park) {APP}$")
 # The marker, in the app's own repo (D99): chore(deploy): <app> is a Meru app.
 MARKER_TITLE = re.compile(rf"^chore\(deploy\): {APP} is a Meru app$")
-REPO = {"fence": "meru", "signing key": "kyverno", "push rule": "zot"}
+REPO = {"fence": "meru", "push rule": "zot"}  # Meru/kyverno's signing key went with Kyverno (2026-11-15)
 
 
 def repo_of(app: str, what: str) -> str:
@@ -49,7 +49,6 @@ def paths(app: str, what: str, environments: tuple[str, ...] = ()) -> tuple[str,
         envs
         + {
             "fence": ("kustomization.yaml", f"projects/{app}.yaml"),
-            "signing key": ("kustomization.yaml", "keys/meru-signing-keys.yaml", f"exceptions/{app}-build.yaml"),
             "push rule": ("config.json",),
             "stop": ("deploy/values.yaml", "deploy/meru.yaml"),
             "park": ("deploy/values.yaml", "deploy/meru.yaml", "deploy/meru.yaml.in"),  # values: read, never changed
@@ -63,7 +62,7 @@ class Title(Value):
 
     direction: str  # onboard | retire
     app: str
-    what: str  # fence | signing key | push rule | stop | park | marker
+    what: str  # fence | push rule | stop | park | marker
 
 
 def parse_title(title: str) -> Title | None:
@@ -118,20 +117,6 @@ def _required(files: Mapping[str, str | None], path: str) -> str:
     return text
 
 
-def _new_key(head: Mapping[str, str | None], app: str) -> str:
-    """The app's key as the PR adds it, checked for shape - the one value Xolotl can't rebuild."""
-    try:
-        key = expected.keys_data(head.get("keys/meru-signing-keys.yaml") or "").get(app)
-    except expected.BadLayoutError as e:
-        raise _MismatchError(f"the PR's signing-keys file: {e}") from e
-    if not isinstance(key, str):
-        raise _MismatchError(f"the PR adds no key for {app}")
-    try:
-        return expected.public_key(key)
-    except ValueError as e:
-        raise _MismatchError(f"{app}'s key: {e}") from e
-
-
 def _fence(t: Title, base: Mapping[str, str | None], request: AppRequest) -> dict[str, str | None]:
     app = t.app
     kustomization, path = _required(base, "kustomization.yaml"), f"projects/{app}.yaml"
@@ -143,39 +128,10 @@ def _fence(t: Title, base: Mapping[str, str | None], request: AppRequest) -> dic
     return {"kustomization.yaml": expected.without_line(kustomization, path), path: None}
 
 
-def _names(app: str, request: AppRequest) -> tuple[str, ...]:
-    """The namespaces that trust the app's key: its own and each environment's (D126)."""
-    return (app, *(f"{app}-{env}" for env in request.environments))
-
-
-def _signing_key(
-    t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
-) -> dict[str, str | None]:
-    app = t.app
-    kustomization, keys = _required(base, "kustomization.yaml"), _required(base, "keys/meru-signing-keys.yaml")
-    path = f"exceptions/{app}-build.yaml"
-    if t.direction == "onboard":
-        key = _new_key(head, app)
-        for name in _names(app, request):  # D126: one key, every environment
-            keys = expected.with_key(keys, name, key)
-        return {
-            "kustomization.yaml": expected.with_line(kustomization, "exceptions", path),
-            "keys/meru-signing-keys.yaml": keys,
-            path: expected.build_exception(app),
-        }
-    for name in _names(app, request):  # every one of the app's keys goes, nobody else's
-        keys = expected.without_key(keys, name)
-    return {
-        "kustomization.yaml": expected.without_line(kustomization, path),
-        "keys/meru-signing-keys.yaml": keys,
-        path: None,
-    }
-
-
 def _new_dsn(head: Mapping[str, str | None]) -> str | None:
     """The GlitchTip DSN the marker PR adds (D125), checked for shape and host.
 
-    Like the signing key: the one value Xolotl takes from the PR, because GlitchTip draws it.
+    The one value Xolotl takes from the PR, because GlitchTip draws it.
     """
     dsn = marker.dsn_line(head.get("deploy/values.yaml"))
     if dsn is not None and not marker.DSN.match(dsn):
@@ -227,11 +183,9 @@ def _push_rule(t: Title, base: Mapping[str, str | None]) -> dict[str, str | None
 def rebuild(
     t: Title, base: Mapping[str, str | None], head: Mapping[str, str | None], request: AppRequest
 ) -> dict[str, str | None]:
-    """Each path and what it must hold after the PR (None = deleted), from the base alone (+ the PR's key or DSN)."""
+    """Each path and what it must hold after the PR (None = deleted), from the base alone (+ the PR's DSN)."""
     if t.what == "fence":
         return _fence(t, base, request)
-    if t.what == "signing key":
-        return _signing_key(t, base, head, request)
     if t.what == "marker":
         return _marker(t.app, base, head, request)
     if t.what == "stop":

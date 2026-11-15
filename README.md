@@ -2,8 +2,8 @@
 
 Meru's merger - checks and merges Shikigami's trust PRs
 
-Shikigami can only *propose* changes to what the cluster trusts - an app's fence (Meru/meru), signing key + build
-exception (Meru/kyverno) and push rule (Meru/zot) - as pull requests. Xolotl decides them (D87):
+Shikigami can only *propose* changes to what the cluster trusts - an app's fence (Meru/meru) and push rule
+(Meru/zot) - as pull requests. Xolotl decides them (D87):
 
 1. reads the app's request on Meru/requests `main` - it must exist, and `removed` must match onboard / retire;
 2. rebuilds, from the PR's own base commit, what every file must hold - its own version of the rules
@@ -42,7 +42,7 @@ scripts/check.sh   # lint, format, types, file size, lockfile, pip-audit, tests 
 ## Deploy
 
 `deploy/meru.yaml` makes this repo a Meru app: [Meru/meru](https://git.clockmost.com/Meru/meru) finds it and deploys it
-into namespace `xolotl`. Shikigami adds it once the app's fence, signing key and build credentials exist,
+into namespace `xolotl`. Shikigami adds it once the app's fence and build credentials exist,
 from `deploy/meru.yaml.in` (the template's chart release and check image) with the owner from the request.
 `deploy/values.yaml` is the app's whole deployment, rendered with the `nuwa-app` chart from
 [Meru/nuwa](https://git.clockmost.com/Meru/nuwa). Merging to `main` runs the checks, builds the image, signs it and rolls
