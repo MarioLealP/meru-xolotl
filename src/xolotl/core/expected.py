@@ -71,8 +71,15 @@ def push_rule(app: str) -> dict:
 
 
 def _repositories(config: str) -> tuple[dict, dict]:
-    parsed = json.loads(config)
-    repositories = parsed.get("http", {}).get("accessControl", {}).get("repositories")
+    try:
+        parsed = json.loads(config)
+    except ValueError as e:
+        raise BadLayoutError(f"config.json isn't JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise BadLayoutError("config.json isn't a JSON object")
+    access = parsed.get("http", {})
+    access = access.get("accessControl", {}) if isinstance(access, dict) else {}
+    repositories = access.get("repositories") if isinstance(access, dict) else None
     if not isinstance(repositories, dict):
         raise BadLayoutError("config.json has no http.accessControl.repositories")
     return parsed, repositories

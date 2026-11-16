@@ -35,6 +35,8 @@ class FakeGitea:
         self.quarantines: list[dict] = []
         self.listed: list[str] = []  # repos whose PRs were asked for
         self.unlistable: set[str] = set()  # repos whose PR list answers 500
+        self.listing_pr_in: set[str] = {"meru"}  # repos that list the PR
+        self.broken_files: set[str] = set()  # repos whose PR file list answers 500
 
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         url, path, method = request.url, unquote(request.url.path), request.method
@@ -45,7 +47,7 @@ class FakeGitea:
         if tail == "/pulls":
             return self._list(repo)
         if tail == "/pulls/25/files":
-            return httpx2.Response(200, json=[{"filename": f} for f in self.meta["changed"]])
+            return self._changed(repo)
         if tail == "/contents/apps":
             return self._folder(request, repo)
         if tail.startswith("/raw/"):
@@ -62,6 +64,11 @@ class FakeGitea:
             return httpx2.Response(201, json={})
         return httpx2.Response(500, text=f"unexpected {method} {path}")
 
+    def _changed(self, repo: str) -> httpx2.Response:
+        if repo in self.broken_files:
+            return httpx2.Response(500)
+        return httpx2.Response(200, json=[{"filename": f} for f in self.meta["changed"]])
+
     def _service(self, request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "shikigami.svc":
             self.pings.append("shikigami")
@@ -73,7 +80,7 @@ class FakeGitea:
         self.listed.append(repo)
         if repo in self.unlistable:
             return httpx2.Response(500)
-        prs = [] if repo != "meru" else [self._pr()]
+        prs = [] if repo not in self.listing_pr_in else [self._pr()]
         return httpx2.Response(200, json=prs)
 
     def _folder(self, request: httpx2.Request, repo: str) -> httpx2.Response:
@@ -300,3 +307,12 @@ async def test_a_checked_pr_that_changes_prod_is_left_to_mario():
     assert await sw._merge_app_pr("golem", pr, checked, "r1")  # uat is the owner's: merged as any other
     fake.meta["changed"] = ["deploy/envs/prod/x"]
     assert await sw._merge_app_pr("meru", pr, checked, "r1")  # a trust repo has no environments
+
+
+async def test_a_pr_the_check_blows_up_on_doesnt_stop_the_pass(caplog: pytest.LogCaptureFixture):
+    fake = FakeGitea()
+    fake.listing_pr_in, fake.broken_files = {"meru", "zot"}, {"meru"}  # meru's PR can't be read; zot's is a mismatch
+    outcome = await sweeper(fake).sweep()
+    assert outcome.waiting == ["Meru/meru#25"]
+    assert outcome.refused == ["Meru/zot#25"]
+    assert "Meru/meru#25: the pass over it failed" in caplog.text
