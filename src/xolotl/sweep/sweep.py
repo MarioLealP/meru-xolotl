@@ -85,23 +85,33 @@ class Sweeper(Service):
                 if pr.author != self.shikigami:
                     continue  # a person's PR: a person merges it
                 where = f"Meru/{repo}#{pr.number}"
-                decision, request_at = await self._decide(repo, pr)
-                log.info("%s %r: %s - %s", where, pr.title, decision.verdict, decision.reason)
-                if decision.verdict == Verdict.MERGE:
-                    if await self._merge_app_pr(repo, pr, decision, request_at):
-                        merged.append(where)
-                    else:
-                        waiting.append(where)
-                elif decision.verdict == Verdict.MISMATCH:
-                    await self._mismatch(repo, pr, decision)
-                    refused.append(where)
-                else:
-                    await self._say_once(repo, pr, f"Not merged yet: {decision.reason}.")
+                try:
+                    await self._act(repo, pr, where, merged, refused, waiting)
+                except Exception:  # one PR the check can't handle must not stop the PRs after it (cm-i7tn)
+                    log.exception("%s: the pass over it failed, left for the next one", where)
                     waiting.append(where)
         await self._purges(merged, refused, waiting)
         if merged:
             await self._ping_shikigami()
         return Outcome(merged=merged, refused=refused, waiting=waiting)
+
+    async def _act(
+        self, repo: str, pr: PullRequest, where: str, merged: list[str], refused: list[str], waiting: list[str]
+    ) -> None:
+        """Decide one of Shikigami's PRs and act on the verdict."""
+        decision, request_at = await self._decide(repo, pr)
+        log.info("%s %r: %s - %s", where, pr.title, decision.verdict, decision.reason)
+        if decision.verdict == Verdict.MERGE:
+            if await self._merge_app_pr(repo, pr, decision, request_at):
+                merged.append(where)
+            else:
+                waiting.append(where)
+        elif decision.verdict == Verdict.MISMATCH:
+            await self._mismatch(repo, pr, decision)
+            refused.append(where)
+        else:
+            await self._say_once(repo, pr, f"Not merged yet: {decision.reason}.")
+            waiting.append(where)
 
     async def _purges(self, merged: list[str], refused: list[str], waiting: list[str]) -> None:
         """Charon's PRs in the requests repo: delete a purged app's request (cm-mr2a). Needs the bot: it's private."""

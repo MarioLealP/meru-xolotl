@@ -158,3 +158,12 @@ def test_an_environment_name_that_cant_be_a_namespace_suffix_is_refused(name: st
     text = (FIXTURES / "request-xolotl.yaml").read_text() + f"  environments: [{{name: '{name}'}}]\n"
     with pytest.raises(ValidationError):
         parse(text)
+
+
+@pytest.mark.parametrize("config", ["{not json", "[]", '{"http": []}', '{"http": {"accessControl": 3}}'])
+def test_a_push_rule_base_that_isnt_zots_config_waits_instead_of_raising(config: str):
+    pr = real_pr("zot-6")
+    pr = pr.model_copy(update={"base": {**pr.base, "config.json": config}})
+    decision = verdict(pr, XOLOTL)
+    assert decision.verdict == Verdict.WAIT
+    assert "can't rebuild" in decision.reason
