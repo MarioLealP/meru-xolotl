@@ -25,12 +25,12 @@ def fence(app: str, description: str, environments: tuple[str, ...] = ()) -> str
     destinations = "".join(f"    - server: https://kubernetes.default.svc\n      namespace: {n}\n" for n in names)
     namespace_kinds = "".join(f'    - {{ group: "", kind: Namespace, name: {n} }}\n' for n in names)
     scope = (
-        "into exactly its namespaces - the app's, its build's and its environments' (D126) -"
+        "into exactly its namespaces - the app's, its build's and its environments' -"
         if environments
         else "into exactly its two namespaces,"
     )
     return f"""# {title(app)}'s fence: where its Application may read from and deploy to - its own repo plus the
-# Nüwa and Sindri charts, {scope} which it may also create. Written by Shikigami (D82).
+# Nüwa and Sindri charts, {scope} which it may also create.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
