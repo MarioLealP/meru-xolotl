@@ -76,7 +76,9 @@ class Sweeper(Service):
             try:
                 prs = await self.gitea.open_prs(repo)
             except httpx2.HTTPStatusError as e:  # e.g. an app repo Xolotl isn't on: the rest still gets its pass
-                if repo not in self._unlisted:  # once, not every sweep (golem, retired before Xolotl existed)
+                if e.response.status_code == 404:  # not visible to Xolotl (golem, retired before it)
+                    log.debug("Meru/%s: not visible, skipped: %s", repo, e)
+                elif repo not in self._unlisted:  # once, not every sweep
                     log.warning("Meru/%s: can't list its PRs: %s", repo, e)
                     self._unlisted.add(repo)
                 continue

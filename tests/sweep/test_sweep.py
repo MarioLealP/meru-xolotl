@@ -35,6 +35,7 @@ class FakeGitea:
         self.quarantines: list[dict] = []
         self.listed: list[str] = []  # repos whose PRs were asked for
         self.unlistable: set[str] = set()  # repos whose PR list answers 500
+        self.invisible: set[str] = set()  # repos whose PR list answers 404 (Xolotl isn't on them)
         self.listing_pr_in: set[str] = {"meru"}  # repos that list the PR
         self.broken_files: set[str] = set()  # repos whose PR file list answers 500
 
@@ -78,6 +79,8 @@ class FakeGitea:
 
     def _list(self, repo: str) -> httpx2.Response:
         self.listed.append(repo)
+        if repo in self.invisible:
+            return httpx2.Response(404)
         if repo in self.unlistable:
             return httpx2.Response(500)
         prs = [] if repo not in self.listing_pr_in else [self._pr()]
@@ -219,6 +222,16 @@ async def test_an_unlistable_repo_is_warned_about_once_until_it_lists_again(capl
     fake.unlistable = {"golem"}
     await s.sweep()
     assert caplog.text.count("Meru/golem: can't list its PRs") == 2
+
+
+async def test_a_repo_xolotl_cannot_see_is_skipped_without_a_warning(caplog: pytest.LogCaptureFixture):
+    fake = FakeGitea()
+    fake.files["requests", "r1"]["apps/golem.yaml"] = GOLEM_REMOVED_REQUEST
+    fake.invisible = {"golem"}
+    with caplog.at_level("INFO"):
+        outcome = await sweeper(fake).sweep()
+    assert outcome.merged == ["Meru/meru#25"]  # the rest still gets its pass
+    assert not [r for r in caplog.records if r.levelname in {"WARNING", "ERROR"} and "golem" in r.getMessage()]
 
 
 class FakeRequests(FakeGitea):
