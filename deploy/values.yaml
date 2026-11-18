@@ -11,30 +11,24 @@ image:
   tag: "5e8404ed0fe4"
 # Its Gitea bot's token (meru-xolotl-identities.sh -> apps/meru/xolotl/eso/gitea): merging and commenting on trust
 # PRs, reading Meru/requests. Without it Xolotl only checks and logs.
-# And the xolotl-approvals app's client secret (meru-oidc-secret.sh -> apps/meru/xolotl/eso/approvals-oidc): redeeming
-# Mario's approval codes (D98). Without it /approve answers 503.
 secretEnv:
   XOLOTL_GITEA_TOKEN:
     secret: gitea
     key: token
-  XOLOTL_APPROVALS_CLIENT_SECRET:
-    secret: approvals-oidc
-    key: clientSecret
 externalSecrets:
   gitea: {}
-  approvals-oidc: {}
 # Who may connect (D97): the host side - Caddy, Gitea and Zabbix are still Docker containers, so their addresses,
-# plus the node for the kubelet's probes - Shikigami (/ping, "trust PRs opened") and Janus (/approve, D98).
+# plus the node for the kubelet's probes - Shikigami (/ping, "trust PRs opened").
 # Everything else in the cluster is refused. When Caddy and Gitea move into the cluster (D24) the Docker range goes
 # for their namespaces.
 networkPolicy:
   enabled: true
   hostAddresses: [10.42.0.1/32] # the node: the kubelet's probes and Caddy on the host (no Docker range any more)
-  fromNamespaces: [janus, shikigami]
+  fromNamespaces: [shikigami]
   egress: none
   toNamespaces: [shikigami] # ping + final validation (Shikigami's policy lets xolotl in)
   toAddresses:
-    - { cidr: 192.168.10.110/32, ports: [443] } # Caddy: Authentik, Gitea, GlitchTip
+    - { cidr: 192.168.10.110/32, ports: [443] } # Caddy: Gitea, GlitchTip
 
 # Crash reports (D125): this app's GlitchTip project, which Shikigami made (it predates the marker's own DSN line).
 glitchtip:

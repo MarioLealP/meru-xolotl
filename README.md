@@ -11,7 +11,8 @@ Shikigami can only *propose* changes to what the cluster trusts - an app's fence
 3. merges only a byte-for-byte match, and exactly the commit it checked (`head_commit_id`), then pings Shikigami;
 4. a mismatch is never merged: it comments the diff and reports Shikigami to Cú Chulainn (D88).
 
-A person's PR is never touched. A sweep runs at start, when Shikigami pings `POST /ping`, and every 15 minutes.
+A person's PR is never touched. Xolotl does nothing for Meru/requests itself (since 2026-11-18 Gitea gates it and Mario merges
+there): it only reads the requests on `main` as evidence. A sweep runs at start, when Shikigami pings `POST /ping`, and every 15 minutes.
 Until its Gitea bot exists (`XOLOTL_GITEA_TOKEN`), it checks and logs only.
 
 | file | job |
@@ -23,7 +24,7 @@ Until its Gitea bot exists (`XOLOTL_GITEA_TOKEN`), it checks and logs only.
 | `src/xolotl/sweep/sweep.py` | one pass over the open PRs, acting on each verdict |
 | `src/xolotl/api/app.py` | `/heartbeat`, `/ping`, the sweep loop |
 
-The tests run the check on the nine trust PRs Shikigami really opened (`tests/fixtures/prs/`) and on tampered copies.
+The tests run the check on the trust PRs Shikigami really opened (`tests/fixtures/prs/`) and on tampered copies.
 
 ## Run locally
 

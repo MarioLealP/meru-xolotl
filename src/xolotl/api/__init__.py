@@ -1,1 +1,1 @@
-"""The FastAPI app: /heartbeat, /ping, /approve."""
+"""The FastAPI app: /heartbeat, /ping."""

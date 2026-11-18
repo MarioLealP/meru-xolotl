@@ -1,9 +1,8 @@
-"""An app's request on Meru/requests main (`apps/<app>.yaml`) - the approval a trust PR has to stand on (D82).
+"""An app's request on Meru/requests main (`apps/<app>.yaml`) - the evidence a trust PR has to stand on (D82).
 
 Only the fields the check needs, read on their own: Xolotl doesn't share Shikigami's request model.
 """
 
-from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 import yaml
@@ -21,19 +20,15 @@ class AppRequest(Value):
     owner: str = ""  # the marker PR's owner lines (D81)
     secrets: tuple[str, ...] = ()  # the names the marker PR wires as env vars (D99)
     entries: tuple[tuple[str, str], ...] = ()  # (name, OpenBao entry) for the names not in env (D123)
-    removed_at: datetime | None = None  # Xolotl's own stamp (D105), UTC; Charon's retention counts from it
-    retention: timedelta = timedelta(days=30)
     environments: tuple[str, ...] = ()  # D126: each widens the fence and trusts the app's key in <app>-<env>
 
 
-Days = Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,3}d$")]
 # env, or env-<yyyymmdd>-<6 hex> from a change (D123) - checked here too: it becomes a Kubernetes name in the marker
 Entry = Annotated[str, StringConstraints(pattern=r"^env(-[0-9]{8}-[0-9a-f]{6})?$")]
 
 
 class _Metadata(Incoming):
     name: str
-    removed_at: datetime | None = Field(default=None, alias="removedAt")  # YAML reads a timestamp as a datetime
 
 
 class _Secret(Incoming):
@@ -51,7 +46,6 @@ class _Spec(Incoming):
     owner: str = ""
     secrets: list[_Secret] = Field(default_factory=list)
     removed: bool = False
-    retention: Days = "30d"  # the same default as the request format
     environments: list[_Environment] = Field(default_factory=list)
 
 
@@ -70,9 +64,6 @@ def parse(text: str) -> AppRequest:
     except yaml.YAMLError as e:
         raise ValueError(f"not YAML: {e}") from e
     doc = _Document.model_validate(loaded)
-    removed_at = doc.metadata.removed_at
-    if removed_at is not None:  # a timestamp without a zone is UTC, as stamp.py writes it
-        removed_at = (removed_at if removed_at.tzinfo else removed_at.replace(tzinfo=UTC)).astimezone(UTC)
     return AppRequest(
         name=doc.metadata.name,
         description=doc.spec.description,
@@ -80,7 +71,5 @@ def parse(text: str) -> AppRequest:
         owner=doc.spec.owner,
         secrets=tuple(secret.name for secret in doc.spec.secrets),
         entries=tuple((s.name, s.entry) for s in doc.spec.secrets if s.entry != "env"),
-        removed_at=removed_at,
-        retention=timedelta(days=int(doc.spec.retention.removesuffix("d"))),
         environments=tuple(env.name for env in doc.spec.environments),
     )
